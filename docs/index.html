@@ -2,20 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <meta name="theme-color" content="#000000" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <link rel="manifest" href="manifest.json" />
-    <link rel="apple-touch-icon" href="icons/icon.png" />
-    <link rel="icon" type="image/x-icon" href="icons/icon.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Atlas Auto Progress</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="style.css" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-<!-- GLOW -->
 <div class="glow-container">
     <div class="glow-orb"></div>
     <div class="glow-orb"></div>
@@ -23,54 +19,323 @@
     <div class="glow-orb"></div>
 </div>
 
-<!-- HEADER -->
-<div class="title-container" id="title-container">
-    <div class="title-pill">
-        <h1>Atlas Auto Progress</h1>
-        <p class="subtitle">Real-time updates from @SkreyzzG</p>
+<!-- Sticky Header -->
+<header class="sticky-header">
+    <h1>Atlas Auto Progress</h1>
+    <p class="subtitle">Real-time updates by @DuplaA</p>
+
+    <!-- GitHub Data Cards (Desktop) -->
+    <div class="github-data-desktop">
+        <div class="github-card" id="github-commits-card">
+            <svg class="github-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <div class="github-data">
+                <div class="github-label">24h Commits</div>
+                <div class="github-value" id="commits-24h">--</div>
+            </div>
+        </div>
+        <div class="github-card" id="github-release-card">
+            <svg class="github-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+            <div class="github-data">
+                <div class="github-label">Latest Release</div>
+                <div class="github-value" id="latest-release">--</div>
+            </div>
+        </div>
+        <div class="github-card" id="github-commit-card">
+            <svg class="github-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="2" x2="12" y2="6"></line>
+                <line x1="12" y1="18" x2="12" y2="22"></line>
+                <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                <line x1="2" y1="12" x2="6" y2="12"></line>
+                <line x1="18" y1="12" x2="22" y2="12"></line>
+                <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+            </svg>
+            <div class="github-data">
+                <div class="github-label">Last Commit</div>
+                <div class="github-value" id="last-commit">--</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search Bar -->
+    <div class="search-container">
+        <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <path d="m21 21-4.35-4.35"></path>
+        </svg>
+        <input type="text" id="search-input" placeholder="Search posts or authors..." />
+        <button id="clear-search" class="clear-search hidden">×</button>
+    </div>
+
+    <!-- Active Filters -->
+    <div id="active-filters" class="active-filters"></div>
+
+    <!-- Quick Filters (Desktop) -->
+    <div class="quick-filters desktop-only">
+        <button id="filter-all" class="filter-btn active" data-filter="all">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            </svg>
+            All Posts
+        </button>
+        <button id="filter-milestones" class="filter-btn" data-filter="milestones">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+            Milestones
+        </button>
+        <button id="filter-issues" class="filter-btn" data-filter="issues">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            Issues
+        </button>
+        <button id="dashboard-toggle" class="filter-btn" data-filter="dashboard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7"></rect>
+                <rect x="14" y="3" width="7" height="7"></rect>
+                <rect x="14" y="14" width="7" height="7"></rect>
+                <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+            Dashboard
+        </button>
+    </div>
+</header>
+
+<!-- Dashboard Panel -->
+<div id="dashboard" class="dashboard hidden">
+    <div class="dashboard-content">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Posts This Week</div>
+                <div class="stat-value" id="stat-posts-week">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Milestones</div>
+                <div class="stat-value" id="stat-milestones">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Open Issues</div>
+                <div class="stat-value" id="stat-issues">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Most Active</div>
+                <div class="stat-value" id="stat-active-user">—</div>
+            </div>
+        </div>
+        <div class="chart-container">
+            <h3>Activity (Last 7 Days)</h3>
+            <canvas id="posts-chart"></canvas>
+        </div>
+        <div class="dashboard-actions">
+            <button id="export-changelog" class="export-btn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Generate Changelog
+            </button>
+        </div>
     </div>
 </div>
 
-<!-- SIDEBAR -->
-<aside id="github-sidebar">
-    <h3>GitHub Live</h3>
-    <div id="github-stats">
-        <div class="github-stat">
-            <span>Commits (24h)</span>
-            <strong id="commit-count">—</strong>
-        </div>
-        <div class="github-stat">
-            <span>Latest Commit</span>
-            <strong id="latest-commit">—</strong>
-        </div>
-        <div class="github-stat">
-            <span>Latest Release</span>
-            <strong id="latest-release">—</strong>
-        </div>
+<!-- Content Pages (Mobile) -->
+<div id="mobile-pages">
+    <!-- Home Page -->
+    <div id="page-home" class="mobile-page active">
+        <main id="feed">
+            <div id="posts-container"></div>
+        </main>
     </div>
-</aside>
 
-<!-- Floating + Button -->
-<button id="fab" class="fab">+</button>
+    <!-- Issues Page -->
+    <div id="page-issues" class="mobile-page">
+        <main id="issues-feed">
+            <div class="page-header">
+                <h2>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    Issues & Bugs
+                </h2>
+                <p>System-tracked issues and bugs</p>
+            </div>
+            <div id="issues-container"></div>
+        </main>
+    </div>
+
+    <!-- GitHub Page -->
+    <div id="page-github" class="mobile-page">
+        <main id="github-feed">
+            <div class="page-header">
+                <h2>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+                    </svg>
+                    GitHub Activity
+                </h2>
+                <p>Live repository statistics</p>
+            </div>
+            <div class="github-stats-mobile">
+                <div class="github-stat-card">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <div class="stat-info">
+                        <div class="stat-title">Commits (24h)</div>
+                        <div class="stat-count" id="mobile-commits-24h">--</div>
+                    </div>
+                </div>
+                <div class="github-stat-card">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                    </svg>
+                    <div class="stat-info">
+                        <div class="stat-title">Latest Release</div>
+                        <div class="stat-count" id="mobile-latest-release">--</div>
+                    </div>
+                </div>
+                <div class="github-stat-card">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="2" x2="12" y2="6"></line>
+                        <line x1="12" y1="18" x2="12" y2="22"></line>
+                        <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                        <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                        <line x1="2" y1="12" x2="6" y2="12"></line>
+                        <line x1="18" y1="12" x2="22" y2="12"></line>
+                        <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                        <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+                    </svg>
+                    <div class="stat-info">
+                        <div class="stat-title">Last Commit</div>
+                        <div class="stat-count" id="mobile-last-commit">--</div>
+                    </div>
+                </div>
+            </div>
+            <div id="github-activity-timeline"></div>
+        </main>
+    </div>
+
+    <!-- Profile Page -->
+    <div id="page-profile" class="mobile-page">
+        <main id="profile-feed">
+            <div class="page-header">
+                <h2>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="12" cy="7" r="4"></circle>
+                    </svg>
+                    Your Profile
+                </h2>
+            </div>
+            <div class="profile-content">
+                <div class="profile-card">
+                    <div class="profile-avatar" id="profile-avatar">U</div>
+                    <input type="text" id="profile-name-input" placeholder="Your name" />
+                    <button id="save-profile" class="save-profile-btn">Save Name</button>
+                </div>
+                <div class="profile-stats">
+                    <div class="profile-stat">
+                        <div class="profile-stat-value" id="user-posts-count">0</div>
+                        <div class="profile-stat-label">Posts</div>
+                    </div>
+                    <div class="profile-stat">
+                        <div class="profile-stat-value" id="user-reactions-count">0</div>
+                        <div class="profile-stat-label">Reactions Given</div>
+                    </div>
+                </div>
+                <div class="profile-actions">
+                    <button id="export-user-data" class="profile-action-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        Export My Data
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<!-- Desktop Feed (shown on desktop, hidden on mobile) -->
+<main id="feed-desktop" class="desktop-only">
+    <div id="posts-container-desktop"></div>
+</main>
+
+<!-- Mobile Bottom Navigation -->
+<nav class="bottom-nav mobile-only">
+    <button class="nav-item active" data-page="home">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+        <span>Home</span>
+    </button>
+    <button class="nav-item" data-page="issues">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <span>Issues</span>
+    </button>
+    <button class="nav-item nav-fab" id="mobile-fab">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+    </button>
+    <button class="nav-item" data-page="github">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+        </svg>
+        <span>GitHub</span>
+    </button>
+    <button class="nav-item" data-page="profile">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+        </svg>
+        <span>Profile</span>
+    </button>
+</nav>
+
+<!-- Desktop Floating + Button -->
+<button id="fab" class="fab desktop-only">+</button>
 
 <!-- Post Composer Modal -->
 <div id="composer-modal" class="modal hidden">
-    <div class="modal-content">
-        <button id="close-composer" class="close">×</button>
+    <div class="modal-content composer-modal">
+        <span id="close-composer" class="close">×</span>
+        <h3>Create Post</h3>
+        <input type="text" id="display-name" placeholder="Your name" />
+        <textarea id="post-content" placeholder="What's happening? Add #tags and paste image URLs..."></textarea>
 
-        <div class="composer-header">
-            <div class="composer-avatar" id="avatar-preview">S</div>
-            <div id="name-preview" contenteditable="true" placeholder="Your name">@SkreyzzG</div>
+        <div class="composer-options">
+            <label class="milestone-toggle">
+                <input type="checkbox" id="milestone-checkbox" />
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                </svg>
+                <span>Mark as Milestone</span>
+            </label>
         </div>
 
-        <textarea id="post-content" placeholder="What's happening?"></textarea>
-
-        <div class="char-counter" id="char-counter">280</div>
-
-        <div class="composer-actions">
-            <div></div>
-            <button id="submit-post" disabled>Post</button>
-        </div>
+        <button id="submit-post">Post</button>
     </div>
 </div>
 
@@ -86,60 +351,6 @@
     </div>
 </div>
 
-<!-- Feed -->
-<main id="feed">
-    <div>
-        <div id="posts-container"></div>
-    </div>
-</main>
-
 <script src="script.js"></script>
-
-<!-- Mobile GitHub page (hidden by default) -->
-<div id="github-mobile" class="mobile-page hidden" aria-hidden="true">
-    <div class="mobile-page-header">
-        <button id="github-mobile-back" class="back-btn" aria-label="Back">←</button>
-        <h3>GitHub Live</h3>
-    </div>
-    <div id="github-mobile-content" class="mobile-page-content">
-        <!-- Will be populated by JS (commit count / latest commit / latest release) -->
-        <div class="github-stat">
-            <span>Commits (24h)</span>
-            <strong id="mobile-commit-count">—</strong>
-        </div>
-        <div class="github-stat">
-            <span>Latest Commit</span>
-            <strong id="mobile-latest-commit">—</strong>
-        </div>
-        <div class="github-stat">
-            <span>Latest Release</span>
-            <strong id="mobile-latest-release">—</strong>
-        </div>
-        <div id="mobile-issues-list" style="margin-top:12px;"></div>
-    </div>
-</div>
-
-<!-- bottom navigation for mobile app feel (adds Github button) -->
-<nav class="bottom-nav" id="bottom-nav" aria-label="Main navigation">
-    <button id="tab-home" class="active" aria-label="Home">
-        <span class="icon" aria-hidden="true"></span>
-        <span>Home</span>
-    </button>
-    <button id="tab-new" aria-label="New">
-        <span class="icon" aria-hidden="true"></span>
-        <span>New</span>
-    </button>
-    <button id="tab-issues" aria-label="Issues">
-        <span class="icon" aria-hidden="true"></span>
-        <span>Issues</span>
-    </button>
-
-    <!-- Github button (will only show on mobile; hidden on desktop by CSS) -->
-    <button id="tab-github" aria-label="GitHub">
-        <span class="icon" aria-hidden="true"></span>
-        <span>GitHub</span>
-    </button>
-</nav>
-
 </body>
 </html>

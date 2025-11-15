@@ -2,589 +2,998 @@
 const SUPABASE_URL = 'https://rikenjfgogyhdhjcasse.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpa2VuamZnb2d5aGRoamNhc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMyMDU0MTcsImV4cCI6MjA3ODc4MTQxN30.bijOb9mbVA1sXePkRI7mRHMuv1GR8v_Bj0HTBab8Thw';
 const PASSWORD = 'duszaverseny2025';
+const GITHUB_REPO = 'duplaA/atlasauto'; // CASE SENSITIVE! Use exact repo name from GitHub
+const GITHUB_TOKEN = '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'; // Optional: Add GitHub token for higher rate limits
 
 const { createClient } = supabase;
 const _supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// === GITHUB API (DIRECT — NO PROXY) ===
-const GITHUB_API = 'https://api.github.com/repos/duplaa/atlasauto';
-const GITHUB_HEADERS = {
-    'Accept': 'application/vnd.github.v3+json',
-    'User-Agent': 'AtlasAuto/1.0 (+https://duplaa.github.io/atlasauto)'
-};
-
-// === CACHE (2 min TTL) ===
-const cache = {
-    issues: { data: null, ts: 0 },
-    commits24h: { data: null, ts: 0 },
-    latestCommit: { data: null, ts: 0 },
-    latestRelease: { data: null, ts: 0 }
-};
-const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
-
-// === USER ID ===
+// User ID
 function getUserId() {
     let id = localStorage.getItem('atlas_user_id');
-    if (!id) { id = crypto.randomUUID(); localStorage.setItem('atlas_user_id', id); }
+    if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem('atlas_user_id', id);
+    }
     return id;
 }
 const USER_ID = getUserId();
 
-// === SVG ICONS ===
-const ICONS = {
-    home: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 11.5L12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-8.5z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    plus: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    issue: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2a10 10 0 1 0 .001 20.001A10 10 0 0 0 12 2zm0 6v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    github: `<svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
-    0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
-    -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07
-    -1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12
-    0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82
-    .44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95
-    .29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8
-    c0-4.42-3.58-8-8-8z"/>
-  </svg>`
+// State
+let allPosts = [];
+let filteredPosts = [];
+let githubData = {
+    commits24h: 0,
+    latestRelease: 'N/A',
+    lastCommit: 'N/A',
+    recentCommits: [],
+    issues: []
+};
+let activeFilters = {
+    search: '',
+    author: null,
+    tags: [],
+    view: 'all' // 'all', 'milestones', 'issues'
 };
 
-// === UTILITIES ===
-function escapeHtml(s = '') {
-    return String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-}
+// Detect mobile
+const isMobile = window.innerWidth <= 768;
 
-function linkify(text) {
-    if (!text) return '';
-    const escaped = escapeHtml(text);
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    return escaped.replace(urlRegex, rawUrl => {
-        const url = rawUrl.trim();
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();">${url}</a>`;
-    });
-}
-
-// === GITHUB FETCH (DIRECT + CACHE + RATE LIMIT GRACEFUL) ===
-async function githubFetch(endpoint, cacheKey) {
-    const now = Date.now();
-    if (cache[cacheKey]?.ts > now - CACHE_TTL && cache[cacheKey].data !== null) {
-        return cache[cacheKey].data;
-    }
-
-    const url = `${GITHUB_API}${endpoint}`;
-    try {
-        const res = await fetch(url, { headers: GITHUB_HEADERS });
-        if (!res.ok) {
-            if (res.status === 403 || res.status === 429) {
-                console.warn('GitHub rate limit hit. Using cache.');
-                return cache[cacheKey]?.data ?? [];
-            }
-            throw new Error(`HTTP ${res.status}`);
-        }
-        const data = await res.json();
-        cache[cacheKey] = { data, ts: now };
-        return data;
-    } catch (err) {
-        console.warn(`GitHub fetch failed (${endpoint}):`, err.message);
-        return cache[cacheKey]?.data ?? [];
-    }
-}
-
-// === DOM READY ===
 document.addEventListener('DOMContentLoaded', () => {
-    const postsContainer = document.getElementById('posts-container');
+    initializeApp();
+});
+
+function initializeApp() {
+    // Elements
+    const fab = document.getElementById('fab');
+    const mobileFab = document.getElementById('mobile-fab');
     const composerModal = document.getElementById('composer-modal');
     const passwordModal = document.getElementById('password-modal');
     const closeComposer = document.getElementById('close-composer');
     const cancelPassword = document.getElementById('cancel-password');
     const confirmPassword = document.getElementById('confirm-password');
     const passwordInput = document.getElementById('password-input');
+    const displayNameInput = document.getElementById('display-name');
     const postContent = document.getElementById('post-content');
     const submitPost = document.getElementById('submit-post');
-    const avatarPreview = document.getElementById('avatar-preview');
-    const namePreview = document.getElementById('name-preview');
-    const charCounter = document.getElementById('char-counter');
-    const titleContainer = document.getElementById('title-container');
-    const bottomNav = document.getElementById('bottom-nav');
-    const appBody = document.querySelector('.app-body');
+    const milestoneCheckbox = document.getElementById('milestone-checkbox');
+    const searchInput = document.getElementById('search-input');
+    const clearSearch = document.getElementById('clear-search');
+    const activeFiltersContainer = document.getElementById('active-filters');
+    const dashboardToggle = document.getElementById('dashboard-toggle');
+    const dashboard = document.getElementById('dashboard');
+    const exportBtn = document.getElementById('export-changelog');
 
-    const oldFab = document.getElementById('fab');
-    if (oldFab) oldFab.remove();
+    // Mobile navigation
+    const navItems = document.querySelectorAll('.nav-item[data-page]');
+    const mobilePages = document.querySelectorAll('.mobile-page');
 
-    const MAX_CHARS = 280;
+    // Quick filters
+    const filterBtns = document.querySelectorAll('.filter-btn[data-filter]');
+
     let pendingPost = null;
-    let cachedFeed = [];
+    let postsChart = null;
 
-    // === BOTTOM NAV ICONS ===
-    if (bottomNav) {
-        const map = { 'tab-home': ICONS.home, 'tab-new': ICONS.plus, 'tab-issues': ICONS.issue, 'tab-github': ICONS.github };
-        bottomNav.querySelectorAll('button').forEach(btn => {
-            const iconSpan = btn.querySelector('.icon');
-            if (iconSpan && map[btn.id]) iconSpan.innerHTML = map[btn.id];
+    // Autofill name
+    const savedName = localStorage.getItem('atlas_display_name');
+    if (savedName) {
+        displayNameInput.value = savedName;
+        if (document.getElementById('profile-name-input')) {
+            document.getElementById('profile-name-input').value = savedName;
+        }
+        if (document.getElementById('profile-avatar')) {
+            document.getElementById('profile-avatar').textContent = savedName[0].toUpperCase();
+        }
+    }
+
+    displayNameInput.addEventListener('input', () => {
+        localStorage.setItem('atlas_display_name', displayNameInput.value);
+    });
+
+    // Profile management
+    if (document.getElementById('profile-name-input')) {
+        document.getElementById('profile-name-input').addEventListener('input', (e) => {
+            localStorage.setItem('atlas_display_name', e.target.value);
+            document.getElementById('profile-avatar').textContent = e.target.value[0]?.toUpperCase() || 'U';
+        });
+
+        document.getElementById('save-profile')?.addEventListener('click', () => {
+            const name = document.getElementById('profile-name-input').value.trim();
+            if (name) {
+                localStorage.setItem('atlas_display_name', name);
+                alert('Profile saved! ✨');
+            }
+        });
+
+        document.getElementById('export-user-data')?.addEventListener('click', () => {
+            exportUserData();
         });
     }
 
-    // === NAME & AVATAR ===
-    const savedName = localStorage.getItem('atlas_display_name') || '';
-    namePreview.textContent = savedName || '';
-    updatePreview();
+    // Open composer
+    fab?.addEventListener('click', () => composerModal.classList.remove('hidden'));
+    mobileFab?.addEventListener('click', () => composerModal.classList.remove('hidden'));
 
-    function updatePreview() {
-        const name = namePreview.textContent.trim();
-        const firstLetter = name[0]?.toUpperCase() || 'S';
-        avatarPreview.textContent = firstLetter;
-    }
-    namePreview.addEventListener('input', () => {
-        const name = namePreview.textContent.trim();
-        localStorage.setItem('atlas_display_name', name);
-        updatePreview();
-        validatePost();
-    });
-    namePreview.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); namePreview.blur(); } });
-
-    // === VALIDATION ===
-    function validatePost() {
-        const len = (postContent.value || '').length;
-        const hasContent = len > 0 && len <= MAX_CHARS;
-        const hasName = (namePreview.textContent || '').trim().length > 0;
-        charCounter.textContent = MAX_CHARS - len;
-        charCounter.classList.toggle('warning', len > MAX_CHARS * 0.9);
-        submitPost.disabled = !(hasContent && hasName);
-    }
-    postContent.addEventListener('input', validatePost);
-    validatePost();
-
-    // === MODALS ===
-    function openComposer() {
-        composerModal.classList.remove('hidden');
-        setTimeout(() => postContent.focus(), 100);
-    }
-    closeComposer?.addEventListener('click', () => {
+    closeComposer.addEventListener('click', () => {
         composerModal.classList.add('hidden');
-        postContent.value = '';
-        validatePost();
+        milestoneCheckbox.checked = false;
     });
-    cancelPassword?.addEventListener('click', () => {
+
+    cancelPassword.addEventListener('click', () => {
         passwordModal.classList.add('hidden');
         pendingPost = null;
     });
+
+    // Close modals on backdrop click
     [composerModal, passwordModal].forEach(modal => {
-        modal?.addEventListener('click', e => {
+        modal.addEventListener('click', (e) => {
             if (e.target === modal) {
                 modal.classList.add('hidden');
-                if (modal === composerModal) { postContent.value = ''; validatePost(); }
+                if (modal === composerModal) milestoneCheckbox.checked = false;
             }
         });
     });
 
-    // === GITHUB ISSUES ===
-    async function loadGitHubData() {
-        try {
-            // remove previous system posts
-            document.querySelectorAll('.post.system-issue').forEach(el => el.remove());
-            const issuesRes = await fetch(`${GITHUB_API}/issues?state=open&per_page=10`);
-            const issues = await issuesRes.json();
-            if (!Array.isArray(issues)) return;
+    // Submit → show password modal
+    submitPost.addEventListener('click', () => {
+        const name = displayNameInput.value.trim();
+        const content = postContent.value.trim();
+        if (!name || !content) return alert('Name and content required');
 
-            issues.forEach(issue => {
-                const systemPost = document.createElement('div');
-                systemPost.className = 'post system-issue';
-
-                const header = document.createElement('div');
-                header.className = 'post-header';
-
-                const avatar = document.createElement('div');
-                avatar.className = 'avatar';
-                // try to use user's avatar from GitHub
-                if (issue.user && issue.user.avatar_url) {
-                    const img = document.createElement('img');
-                    img.src = issue.user.avatar_url;
-                    img.alt = issue.user.login;
-                    img.style.width = '100%';
-                    img.style.height = '100%';
-                    img.style.objectFit = 'cover';
-                    img.style.borderRadius = '50%';
-                    avatar.appendChild(img);
-                } else {
-                    avatar.textContent = 'S';
-                }
-
-                const nameSpan = document.createElement('span');
-                nameSpan.className = 'post-name';
-                nameSpan.textContent = 'System';
-
-                const timeSpan = document.createElement('span');
-                timeSpan.className = 'post-time';
-                timeSpan.textContent = new Date(issue.created_at).toLocaleString('hu-HU', {
-                    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                });
-
-                header.appendChild(avatar);
-                header.appendChild(nameSpan);
-                header.appendChild(timeSpan);
-
-                const content = document.createElement('div');
-                content.className = 'post-content';
-
-                const title = (issue.title || '').trim();
-                const author = issue.user?.login ? issue.user.login.trim() : 'unknown';
-                // small and link as separate elements (no leading spaces)
-                content.innerHTML = `
-                    <div><strong>Issue #${issue.number}</strong>: ${escapeHtml(title)}</div>
-                    <small>by @${escapeHtml(author)}</small>
-                    <a href="${issue.html_url}" target="_blank" class="issue-link" onclick="event.stopPropagation();">View on GitHub</a>
-                `;
-
-                systemPost.appendChild(header);
-                systemPost.appendChild(content);
-
-                // append to the top of posts container (so issues are visible)
-                postsContainer.insertBefore(systemPost, postsContainer.firstChild);
-            });
-        } catch (err) { console.error('GitHub API error:', err); }
-    }
-
-    // === SUBMIT POST ===
-    submitPost?.addEventListener('click', () => {
-        const name = (namePreview.textContent || '').trim();
-        const content = (postContent.value || '').trim();
-        if (!name || !content || content.length > MAX_CHARS) {
-            alert('Please enter a name and valid post (1–280 characters).');
-            return;
-        }
-        pendingPost = { name, content };
+        pendingPost = {
+            name,
+            content,
+            is_milestone: milestoneCheckbox.checked,
+            is_issue: false
+        };
         composerModal.classList.add('hidden');
         passwordModal.classList.remove('hidden');
         setTimeout(() => passwordInput.focus(), 100);
     });
 
-    confirmPassword?.addEventListener('click', async () => {
+    // Confirm password
+    confirmPassword.addEventListener('click', async () => {
         if (!pendingPost) return;
-        if ((passwordInput.value || '') !== PASSWORD) { alert('Incorrect password'); return; }
+        const input = passwordInput.value;
+        if (input !== PASSWORD) {
+            alert('Incorrect password');
+            return;
+        }
 
-        const { error } = await _supabase.from('posts').insert({
-            name: pendingPost.name, content: pendingPost.content, likes: [], timestamp: new Date().toISOString()
-        });
+        const { error } = await _supabase
+            .from('posts')
+            .insert({
+                name: pendingPost.name,
+                content: pendingPost.content,
+                is_milestone: pendingPost.is_milestone || false,
+                is_issue: pendingPost.is_issue || false,
+                reactions: { like: [], celebrate: [], rocket: [], eyes: [], perfect: [] }
+            });
 
-        if (error) { alert('Post failed: ' + error.message); }
-        else {
+        if (error) {
+            alert('Post failed: ' + error.message);
+        } else {
             postContent.value = '';
+            milestoneCheckbox.checked = false;
             passwordModal.classList.add('hidden');
             passwordInput.value = '';
             pendingPost = null;
-            validatePost();
-            await loadFeed();
+            loadPosts();
         }
     });
 
-    passwordInput?.addEventListener('keydown', e => { if (e.key === 'Enter') confirmPassword.click(); });
+    // Enter key in password
+    passwordInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') confirmPassword.click();
+    });
 
-    // === POST ELEMENTS ===
-    function createUserPostElement(post) {
-        const postEl = document.createElement('div');
-        postEl.className = 'post';
-        postEl.dataset.type = 'user';
-        postEl.dataset.timestamp = post.timestamp || '';
+    // Search functionality
+    searchInput.addEventListener('input', (e) => {
+        activeFilters.search = e.target.value.trim().toLowerCase();
+        clearSearch.classList.toggle('hidden', !activeFilters.search);
+        applyFilters();
+    });
 
-        const header = document.createElement('div');
-        header.className = 'post-header';
+    clearSearch.addEventListener('click', () => {
+        searchInput.value = '';
+        activeFilters.search = '';
+        clearSearch.classList.add('hidden');
+        applyFilters();
+    });
 
-        const avatar = document.createElement('div');
-        avatar.className = 'avatar';
-        avatar.textContent = (post.name || 'S')[0]?.toUpperCase();
+    // Handle dashboard toggle separately
+    dashboardToggle?.addEventListener('click', () => {
+        dashboard.classList.toggle('hidden');
+        dashboardToggle.classList.toggle('active');
+        if (!dashboard.classList.contains('hidden')) {
+            updateDashboard();
+        }
+    });
 
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'post-name';
-        nameSpan.textContent = post.name || 'Unknown';
+    // Handle view filters ('all', 'milestones', 'issues')
+    filterBtns.forEach(btn => {
+        if (btn.dataset.filter === 'dashboard') {
+            return; // Skip dashboard button, it has its own listener
+        }
+        btn.addEventListener('click', () => {
+            const filter = btn.dataset.filter;
 
-        const timeSpan = document.createElement('span');
-        timeSpan.className = 'post-time';
-        timeSpan.textContent = new Date(post.timestamp).toLocaleString('hu-HU', {
-            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            // Deactivate other view filters
+            filterBtns.forEach(b => {
+                if (b.dataset.filter !== 'dashboard') {
+                    b.classList.remove('active');
+                }
+            });
+            btn.classList.add('active');
+            activeFilters.view = filter;
+            applyFilters();
         });
+    });
 
-        header.appendChild(avatar);
-        header.appendChild(nameSpan);
-        header.appendChild(timeSpan);
+    // Mobile navigation
+    navItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const page = item.dataset.page;
 
-        const content = document.createElement('div');
-        content.className = 'post-content';
-        content.innerHTML = linkify((post.content || '').trim());
+            // Update active nav item
+            navItems.forEach(n => n.classList.remove('active'));
+            item.classList.add('active');
 
-        const actions = document.createElement('div');
-        actions.className = 'post-actions';
+            // Show corresponding page
+            mobilePages.forEach(p => p.classList.remove('active'));
+            document.getElementById(`page-${page}`)?.classList.add('active');
 
-        const likeBtn = document.createElement('button');
-        likeBtn.className = 'like-btn';
-        const liked = Array.isArray(post.likes) && post.likes.includes(USER_ID);
-        const likeCount = Array.isArray(post.likes) ? post.likes.length : 0;
+            // Load specific content
+            if (page === 'issues') {
+                renderIssues();
+            } else if (page === 'github') {
+                updateGitHubMobile();
+            } else if (page === 'profile') {
+                updateProfile();
+            }
+        });
+    });
 
-        likeBtn.innerHTML = `
-      <svg class="heart" width="18" height="18" viewBox="0 0 24 24" 
-           fill="${liked ? '#f91880' : 'none'}" 
-           stroke="${liked ? '#f91880' : 'currentColor'}" 
-           stroke-width="2" style="background:transparent;">
-        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-      </svg>
-      <span>${likeCount}</span>
-    `;
-        if (liked) likeBtn.classList.add('liked');
-        likeBtn.onclick = async e => {
+    // Export changelog
+    exportBtn?.addEventListener('click', () => {
+        generateChangelog();
+    });
+
+    // Load posts and GitHub data
+    loadPosts();
+    fetchGitHubData();
+
+    // Set interval for GitHub data refresh (every 5 minutes)
+    setInterval(fetchGitHubData, 5 * 60 * 1000);
+
+    // Real-time subscription
+    _supabase
+        .channel('posts')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => loadPosts())
+        .subscribe();
+}
+
+// Load posts
+async function loadPosts() {
+    const { data: posts, error } = await _supabase
+        .from('posts')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
+    if (error) {
+        console.error(error);
+        return;
+    }
+
+    allPosts = posts;
+    applyFilters();
+}
+
+// Apply filters
+function applyFilters() {
+    filteredPosts = allPosts.filter(post => {
+        // View filter
+        if (activeFilters.view === 'milestones') {
+            if (!post.is_milestone) return false;
+        } else if (activeFilters.view === 'issues') {
+            if (!post.is_issue) return false;
+        } else { // 'all' view
+            if (post.is_issue) return false; // Exclude issues from the 'all' feed
+        }
+
+        // Search filter
+        if (activeFilters.search) {
+            const searchLower = activeFilters.search;
+            const matchesContent = post.content.toLowerCase().includes(searchLower);
+            const matchesName = post.name.toLowerCase().includes(searchLower);
+            if (!matchesContent && !matchesName) return false;
+        }
+
+        // Author filter
+        if (activeFilters.author && post.name !== activeFilters.author) {
+            return false;
+        }
+
+        // Tag filters
+        if (activeFilters.tags.length > 0) {
+            const postTags = extractHashtags(post.content);
+            const hasAllTags = activeFilters.tags.every(tag =>
+                postTags.includes(tag.toLowerCase())
+            );
+            if (!hasAllTags) return false;
+        }
+
+        return true;
+    });
+
+    renderPosts();
+    updateActiveFiltersUI();
+}
+
+// Render posts
+function renderPosts() {
+    const containers = [
+        document.getElementById('posts-container'),
+        document.getElementById('posts-container-desktop')
+    ];
+
+    containers.forEach(container => {
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (filteredPosts.length === 0) {
+            const message = activeFilters.view === 'issues' ? 'No open issues found' : 'No posts found';
+            container.innerHTML = `<div class="loading">${message}</div>`;
+            return;
+        }
+
+        filteredPosts.forEach((post, i) => {
+            // All filtering is now done in applyFilters(). This function just renders.
+            container.appendChild(createPostElement(post, i));
+        });
+    });
+}
+
+// Render issues
+function renderIssues() {
+    const container = document.getElementById('issues-container');
+    if (!container) return;
+
+    container.innerHTML = '';
+    const issues = allPosts.filter(p => p.is_issue);
+
+    if (issues.length === 0) {
+        container.innerHTML = '<div class="loading">No issues reported</div>';
+        return;
+    }
+
+    issues.forEach((post, i) => {
+        container.appendChild(createPostElement(post, i));
+    });
+}
+
+// Create post element
+function createPostElement(post, index) {
+    const postEl = document.createElement('div');
+    postEl.className = 'post';
+    if (post.is_milestone) postEl.classList.add('milestone');
+    if (post.is_issue) postEl.classList.add('issue');
+    postEl.style.animationDelay = `${index * 0.05}s`;
+
+    // Avatar
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    if (post.is_issue) avatar.classList.add('system');
+    avatar.textContent = post.name[0].toUpperCase();
+    avatar.onclick = (e) => {
+        e.stopPropagation();
+        if (!post.is_issue) setAuthorFilter(post.name);
+    };
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'post-header';
+    header.appendChild(avatar);
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'post-name';
+    nameSpan.textContent = post.name;
+
+    // Badges
+    if (post.is_issue) {
+        const badge = document.createElement('span');
+        badge.className = 'system-badge';
+        badge.textContent = '🤖 System';
+        nameSpan.appendChild(badge);
+    }
+
+    if (post.is_milestone) {
+        const badge = document.createElement('span');
+        badge.className = 'milestone-badge';
+        badge.innerHTML = `
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+            <span>Milestone</span>
+        `;
+        nameSpan.appendChild(badge);
+    }
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'post-time';
+    timeSpan.textContent = formatTimestamp(post.timestamp);
+
+    header.appendChild(nameSpan);
+    header.appendChild(timeSpan);
+
+    // Content
+    const content = document.createElement('div');
+    content.className = 'post-content';
+    content.innerHTML = processContent(post.content);
+
+    // Add hashtag click handlers
+    content.querySelectorAll('.hashtag').forEach(tag => {
+        tag.onclick = (e) => {
             e.stopPropagation();
-            const currentLikes = Array.isArray(post.likes) ? post.likes : [];
-            const isLiked = currentLikes.includes(USER_ID);
-            const newLikes = isLiked ? currentLikes.filter(id => id !== USER_ID) : [...currentLikes, USER_ID];
-            const { error } = await _supabase.from('posts').update({ likes: newLikes }).eq('id', post.id);
-            if (!error) await loadFeed();
+            addTagFilter(tag.textContent);
+        };
+    });
+
+    // Image if URL detected
+    const imageUrl = extractImageUrl(post.content);
+    if (imageUrl) {
+        const img = document.createElement('img');
+        img.className = 'post-image';
+        img.src = imageUrl;
+        img.alt = 'Post image';
+        img.onerror = () => img.remove();
+        content.appendChild(img);
+    }
+
+    // Reactions
+    const reactions = post.reactions || {
+        like: [],
+        celebrate: [],
+        rocket: [],
+        eyes: [],
+        perfect: []
+    };
+
+    const actions = document.createElement('div');
+    actions.className = 'post-actions';
+
+    const reactionTypes = [
+        { key: 'like', emoji: '❤️', label: 'Like' },
+        { key: 'celebrate', emoji: '🎉', label: 'Celebrate' },
+        { key: 'rocket', emoji: '🚀', label: 'Exciting' },
+        { key: 'eyes', emoji: '👀', label: 'Watching' },
+        { key: 'perfect', emoji: '💯', label: 'Perfect' }
+    ];
+
+    reactionTypes.forEach(({ key, emoji, label }) => {
+        const btn = document.createElement('button');
+        btn.className = 'reaction-btn';
+        const userReacted = reactions[key]?.includes(USER_ID);
+        if (userReacted) btn.classList.add('active');
+
+        btn.innerHTML = `
+            <span class="emoji">${emoji}</span>
+            <span>${reactions[key]?.length || 0}</span>
+        `;
+        btn.title = label;
+
+        btn.onclick = async (e) => {
+            e.stopPropagation();
+            await toggleReaction(post.id, key, reactions);
         };
 
-        actions.appendChild(likeBtn);
-        postEl.appendChild(header);
-        postEl.appendChild(content);
-        postEl.appendChild(actions);
-        return postEl;
+        actions.appendChild(btn);
+    });
+
+    postEl.appendChild(header);
+    postEl.appendChild(content);
+    postEl.appendChild(actions);
+
+    return postEl;
+}
+
+// Toggle reaction
+async function toggleReaction(postId, reactionKey, currentReactions) {
+    const userReacted = currentReactions[reactionKey]?.includes(USER_ID);
+    const newReactions = { ...currentReactions };
+
+    if (userReacted) {
+        newReactions[reactionKey] = currentReactions[reactionKey].filter(id => id !== USER_ID);
+    } else {
+        newReactions[reactionKey] = [...(currentReactions[reactionKey] || []), USER_ID];
     }
 
-    function createSystemIssueElement(issue) {
-        const postEl = document.createElement('div');
-        postEl.className = 'post system-issue';
-        postEl.dataset.type = 'system';
-        postEl.dataset.timestamp = issue.created_at || '';
+    const { error } = await _supabase
+        .from('posts')
+        .update({ reactions: newReactions })
+        .eq('id', postId);
 
-        const header = document.createElement('div');
-        header.className = 'post-header';
+    if (!error) loadPosts();
+}
 
-        const avatar = document.createElement('div');
-        avatar.className = 'avatar';
-        if (issue.user?.avatar_url) {
-            const img = document.createElement('img');
-            img.src = issue.user.avatar_url;
-            img.alt = issue.user.login || 'avatar';
-            img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%';
-            avatar.appendChild(img);
-        } else avatar.textContent = 'S';
+// Process content
+function processContent(text) {
+    let processed = linkify(text);
+    processed = highlightHashtags(processed);
+    return processed;
+}
 
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'post-name';
-        nameSpan.textContent = 'System';
+// Linkify URLs
+function linkify(text) {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    return text.replace(urlRegex, url =>
+        `<a href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();">${url}</a>`
+    );
+}
 
-        const timeSpan = document.createElement('span');
-        timeSpan.className = 'post-time';
-        timeSpan.textContent = new Date(issue.created_at).toLocaleString('hu-HU', {
-            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-        });
+// Highlight hashtags
+function highlightHashtags(text) {
+    const hashtagRegex = /#(\w+)/g;
+    return text.replace(hashtagRegex, (match) =>
+        `<span class="hashtag">${match}</span>`
+    );
+}
 
-        header.appendChild(avatar);
-        header.appendChild(nameSpan);
-        header.appendChild(timeSpan);
+// Extract hashtags
+function extractHashtags(text) {
+    const hashtagRegex = /#(\w+)/g;
+    const matches = text.match(hashtagRegex);
+    return matches ? matches.map(tag => tag.toLowerCase()) : [];
+}
 
-        const content = document.createElement('div');
-        content.className = 'post-content';
-        const title = (issue.title || '').trim();
-        const author = issue.user?.login ? issue.user.login.trim() : 'unknown';
-        content.innerHTML = `
-      <div><strong>Issue #${issue.number}</strong>: ${escapeHtml(title)}</div>
-      <small>by @${escapeHtml(author)}</small>
-      <a href="${issue.html_url}" target="_blank" class="issue-link" onclick="event.stopPropagation();">View on GitHub</a>
+// Extract image URL
+function extractImageUrl(text) {
+    const imageRegex = /(https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg))/i;
+    const match = text.match(imageRegex);
+    return match ? match[0] : null;
+}
+
+// Set author filter
+function setAuthorFilter(author) {
+    if (activeFilters.author === author) {
+        activeFilters.author = null;
+    } else {
+        activeFilters.author = author;
+    }
+    applyFilters();
+}
+
+// Add tag filter
+function addTagFilter(tag) {
+    const tagLower = tag.toLowerCase();
+    if (!activeFilters.tags.includes(tagLower)) {
+        activeFilters.tags.push(tagLower);
+        applyFilters();
+    }
+}
+
+// Remove filter
+function removeFilter(type, value) {
+    if (type === 'author') {
+        activeFilters.author = null;
+    } else if (type === 'tag') {
+        activeFilters.tags = activeFilters.tags.filter(t => t !== value);
+    }
+    applyFilters();
+}
+
+// Update active filters UI
+function updateActiveFiltersUI() {
+    const container = document.getElementById('active-filters');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (activeFilters.author) {
+        const chip = createFilterChip('author', `@${activeFilters.author}`, activeFilters.author);
+        container.appendChild(chip);
+    }
+
+    activeFilters.tags.forEach(tag => {
+        const chip = createFilterChip('tag', tag, tag);
+        container.appendChild(chip);
+    });
+}
+
+// Create filter chip
+function createFilterChip(type, label, value) {
+    const chip = document.createElement('div');
+    chip.className = 'filter-chip';
+    chip.innerHTML = `
+        <span>${label}</span>
+        <span class="filter-chip-close">×</span>
     `;
+    chip.onclick = () => removeFilter(type, value);
+    return chip;
+}
 
-        postEl.appendChild(header);
-        postEl.appendChild(content);
-        return postEl;
+// Format timestamp
+function formatTimestamp(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now - date;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m`;
+    if (hours < 24) return `${hours}h`;
+    if (days < 7) return `${days}d`;
+    return date.toLocaleDateString();
+}
+
+// Fetch GitHub data
+async function fetchGitHubData() {
+    if (!GITHUB_REPO) {
+        console.log('GitHub repo not configured');
+        return;
     }
 
-    // === LOAD FEED ===
-    async function loadFeed() {
-        try {
-            const { data: userPosts, error: postsError } = await _supabase.from('posts').select('*').order('timestamp', { ascending: false });
-            if (postsError) { console.error('Load posts error:', postsError); return; }
-            const posts = Array.isArray(userPosts) ? userPosts.map(p => ({ kind: 'user', data: p, ts: new Date(p.timestamp).getTime() })) : [];
+    try {
+        const headers = GITHUB_TOKEN ? { 'Authorization': `token ${GITHUB_TOKEN}` } : {};
 
-            let issues = [];
-            try {
-                const issuesJson = await githubFetch('/issues?state=open&per_page=20', 'issues');
-                if (Array.isArray(issuesJson)) {
-                    issues = issuesJson.map(i => ({ kind: 'system', data: i, ts: new Date(i.created_at).getTime() }));
-                }
-            } catch (e) { console.error('GitHub issues fetch failed:', e); }
+        // Fetch commits
+        const commitsRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/commits?per_page=100`, { headers });
 
-            const merged = [...posts, ...issues].sort((a, b) => b.ts - a.ts);
-            cachedFeed = merged;
+        if (!commitsRes.ok) {
+            console.error(`GitHub API error: ${commitsRes.status} ${commitsRes.statusText}`);
+            console.log(`URL attempted: https://api.github.com/repos/${GITHUB_REPO}/commits`);
+            console.log('Make sure GITHUB_REPO matches exactly (case-sensitive): username/repo-name');
 
-            postsContainer.innerHTML = '';
-            merged.forEach((item, i) => {
-                const el = item.kind === 'user' ? createUserPostElement(item.data) : createSystemIssueElement(item.data);
-                el.style.animationDelay = `${i * 0.05}s`;
-                postsContainer.appendChild(el);
-            });
-        } catch (err) {
-            console.error('loadFeed error:', err);
+            // Set fallback values
+            githubData.commits24h = 0;
+            githubData.lastCommit = 'Check repo name';
+            updateGitHubUI();
+            return;
         }
-    }
 
-    // === FILTERS ===
-    function showAll() { renderFeed(cachedFeed); }
-    function showIssuesOnly() { renderFeed(cachedFeed.filter(i => i.kind === 'system')); }
-    function renderFeed(items) {
-        if (!items.length) { loadFeed(); return; }
-        postsContainer.innerHTML = '';
-        items.forEach((item, i) => {
-            const el = item.kind === 'user' ? createUserPostElement(item.data) : createSystemIssueElement(item.data);
-            el.style.animationDelay = `${i * 0.05}s`;
-            postsContainer.appendChild(el);
-        });
-    }
+        const commits = await commitsRes.json();
 
-    // === GITHUB PAGE (MOBILE) ===
-    function showGitHubPage() {
-        document.body.classList.add('github-open');
-        const mobilePage = document.getElementById('github-mobile');
-        if (mobilePage) {
-            mobilePage.classList.remove('hidden');
-            mobilePage.setAttribute('aria-hidden', 'false');
-        }
-        loadGitHubSidebar(true);
-    }
-    function hideGitHubPage() {
-        document.body.classList.remove('github-open');
-        const mobilePage = document.getElementById('github-mobile');
-        if (mobilePage) {
-            mobilePage.classList.add('hidden');
-            mobilePage.setAttribute('aria-hidden', 'true');
-        }
-    }
+        if (Array.isArray(commits)) {
+            // Commits in last 24h
+            const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            githubData.commits24h = commits.filter(c => new Date(c.commit.author.date) > oneDayAgo).length;
 
-    // === GITHUB SIDEBAR + MOBILE STATS ===
-    async function loadGitHubSidebar() {
-        try {
-            const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-            const commitsRes = await fetch(`${GITHUB_API}/commits?since=${encodeURIComponent(since)}&per_page=100`);
-            const commits = await commitsRes.json();
-            const commitCountEl = document.getElementById('commit-count');
-            if (commitCountEl) commitCountEl.textContent = Array.isArray(commits) ? String(commits.length) : '—';
-
-            // latest commit
-            const latestCommitRes = await fetch(`${GITHUB_API}/commits?per_page=1`);
-            const latestCommits = await latestCommitRes.json();
-            const latestCommitEl = document.getElementById('latest-commit');
-            if (latestCommitEl) {
-                if (Array.isArray(latestCommits) && latestCommits[0]) {
-                    const sha = latestCommits[0].sha.slice(0, 7);
-                    const message = (latestCommits[0].commit.message || '').split('\n')[0];
-                    latestCommitEl.textContent = `${sha} — ${message}`;
-                    latestCommitEl.style.cursor = 'pointer';
-                    latestCommitEl.onclick = () => window.open(latestCommits[0].html_url, '_blank');
-                } else {
-                    latestCommitEl.textContent = '—';
-                    latestCommitEl.onclick = null;
-                }
+            // Last commit
+            if (commits[0]) {
+                const lastCommitDate = new Date(commits[0].commit.author.date);
+                githubData.lastCommit = formatTimestamp(lastCommitDate);
             }
 
-            // latest release
-            const releaseRes = await fetch(`${GITHUB_API}/releases/latest`);
-            const latestReleaseEl = document.getElementById('latest-release');
-            if (releaseRes.ok && latestReleaseEl) {
-                const release = await releaseRes.json();
-                latestReleaseEl.textContent = `${release.name || release.tag_name} • ${new Date(release.published_at).toLocaleDateString('hu-HU')}`;
-                latestReleaseEl.style.cursor = 'pointer';
-                latestReleaseEl.onclick = () => window.open(release.html_url, '_blank');
-            } else if (latestReleaseEl) {
-                latestReleaseEl.textContent = '—';
-                latestReleaseEl.onclick = null;
-            }
-        } catch (err) {
-            console.error('GitHub sidebar error:', err);
-            const commitCountEl = document.getElementById('commit-count');
-            const latestCommitEl = document.getElementById('latest-commit');
-            const latestReleaseEl = document.getElementById('latest-release');
-            if (commitCountEl) commitCountEl.textContent = '—';
-            if (latestCommitEl) latestCommitEl.textContent = '—';
-            if (latestReleaseEl) latestReleaseEl.textContent = '—';
+            githubData.recentCommits = commits.slice(0, 10);
         }
-    }
 
-    // === REAL-TIME SUBSCRIBE ===
-    try {
-        _supabase.channel('posts')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
-                loadPosts();
-                setTimeout(loadGitHubData, 500);
-            })
-            .subscribe();
-    } catch (err) {
-        console.warn('Realtime not available:', err);
-    }
+        // Fetch GitHub issues (open)
+        const issuesRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/issues?state=open&per_page=50`, { headers });
 
+        if (issuesRes.ok) {
+            const issues = await issuesRes.json();
+            githubData.issues = issues.filter(issue => !issue.pull_request); // Filter out PRs
+            console.log(`Found ${githubData.issues.length} open issues on GitHub`);
 
-    // === REAL-TIME ===
-    try {
-        _supabase.channel('posts')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => loadFeed())
-            .subscribe();
-    } catch (err) { console.warn('Realtime not available:', err); }
-
-    // === PILL BOUNCE ===
-    let lastScrollY = window.scrollY;
-    window.addEventListener('scroll', () => {
-        const current = window.scrollY;
-        const delta = current - lastScrollY;
-        if (Math.abs(delta) > 10) {
-            if (delta > 0) { titleContainer.classList.remove('bounce-up'); titleContainer.classList.add('bounce-down'); }
-            else { titleContainer.classList.remove('bounce-down'); titleContainer.classList.add('bounce-up'); }
-            lastScrollY = current;
-        }
-    });
-
-    // === APP MODE & NAV ===
-    function isStandalone() {
-        return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
-    }
-    function applyAppMode() {
-        const appShell = document.querySelector('.app-shell') || document.body;
-        if (isStandalone()) {
-            titleContainer?.classList.add('compact');
-            appShell.classList.add('standalone');
+            // Sync issues to database
+            await syncIssuesToDatabase(githubData.issues);
         } else {
-            titleContainer?.classList.remove('compact');
-            appShell.classList.remove('standalone');
+            console.error(`GitHub issues API error: ${issuesRes.status}`);
+        }
+
+        // Fetch latest release (handle 404 gracefully if no releases)
+        const releaseRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, { headers });
+
+        if (releaseRes.ok) {
+            const release = await releaseRes.json();
+            if (release.tag_name) {
+                githubData.latestRelease = release.tag_name;
+            }
+        } else if (releaseRes.status === 404) {
+            // No releases yet - this is normal
+            githubData.latestRelease = 'No releases';
+        } else {
+            console.error(`GitHub releases API error: ${releaseRes.status}`);
+            githubData.latestRelease = 'Error';
+        }
+
+        updateGitHubUI();
+        console.log('GitHub data loaded successfully:', githubData);
+    } catch (error) {
+        console.error('GitHub fetch error:', error);
+        githubData.commits24h = 0;
+        githubData.lastCommit = 'Error loading';
+        githubData.latestRelease = 'Error';
+        updateGitHubUI();
+    }
+}
+
+// Sync GitHub issues to database
+async function syncIssuesToDatabase(issues) {
+    if (!issues || issues.length === 0) return;
+
+    // Get existing issue posts
+    const { data: existingPosts } = await _supabase
+        .from('posts')
+        .select('content')
+        .eq('is_issue', true);
+
+    const existingIssueNumbers = existingPosts?.map(p => {
+        const match = p.content.match(/#(\d+)/);
+        return match ? parseInt(match[1]) : null;
+    }).filter(Boolean) || [];
+
+    // Add new issues
+    for (const issue of issues) {
+        if (!existingIssueNumbers.includes(issue.number)) {
+            const content = `Issue #${issue.number}: ${issue.title}\n\n${issue.body?.substring(0, 200) || 'No description'}${issue.body?.length > 200 ? '...' : ''}\n\nView on GitHub: ${issue.html_url}`;
+
+            await _supabase.from('posts').insert({
+                name: 'System',
+                content: content,
+                is_issue: true,
+                is_milestone: false,
+                reactions: { like: [], celebrate: [], rocket: [], eyes: [], perfect: [] }
+            });
+
+            console.log(`Added issue #${issue.number} to database`);
         }
     }
-    applyAppMode();
-    window.addEventListener('visibilitychange', applyAppMode);
+}
 
-    if (bottomNav) {
-        bottomNav.querySelectorAll('button').forEach(btn => {
-            btn.addEventListener('click', () => {
-                bottomNav.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                if (btn.id === 'tab-new') openComposer();
-                else if (btn.id === 'tab-issues') showIssuesOnly();
-                else if (btn.id === 'tab-github') showGitHubPage();
-                else { showAll(); hideGitHubPage(); }
-            });
+// Update GitHub UI
+function updateGitHubUI() {
+    // Desktop
+    const commits24hEl = document.getElementById('commits-24h');
+    const latestReleaseEl = document.getElementById('latest-release');
+    const lastCommitEl = document.getElementById('last-commit');
+
+    if (commits24hEl) commits24hEl.textContent = githubData.commits24h;
+    if (latestReleaseEl) latestReleaseEl.textContent = githubData.latestRelease;
+    if (lastCommitEl) lastCommitEl.textContent = githubData.lastCommit;
+
+    // Mobile
+    updateGitHubMobile();
+}
+
+// Update GitHub mobile
+function updateGitHubMobile() {
+    const mobileCommits = document.getElementById('mobile-commits-24h');
+    const mobileRelease = document.getElementById('mobile-latest-release');
+    const mobileCommit = document.getElementById('mobile-last-commit');
+
+    if (mobileCommits) mobileCommits.textContent = githubData.commits24h;
+    if (mobileRelease) mobileRelease.textContent = githubData.latestRelease;
+    if (mobileCommit) mobileCommit.textContent = githubData.lastCommit;
+
+    // Render activity timeline
+    const timeline = document.getElementById('github-activity-timeline');
+    if (timeline && githubData.recentCommits.length > 0) {
+        timeline.innerHTML = '<div class="page-header" style="margin-top: 20px;"><h3 style="font-size: 1rem; color: #71767b;">Recent Commits</h3></div>';
+
+        githubData.recentCommits.forEach(commit => {
+            const commitEl = document.createElement('a');
+            commitEl.href = commit.html_url;
+            commitEl.target = '_blank';
+            commitEl.rel = 'noopener noreferrer';
+            commitEl.className = 'commit-card';
+            commitEl.style.textDecoration = 'none';
+            commitEl.style.color = 'inherit';
+            commitEl.style.display = 'block';
+
+            const shortSha = commit.sha.substring(0, 7);
+            const message = commit.commit.message.split('\n')[0];
+            const truncatedMessage = message.length > 60 ? message.substring(0, 60) + '...' : message;
+
+            commitEl.innerHTML = `
+                <div class="commit-header">
+                    <div class="commit-avatar" style="width: 32px; height: 32px; border-radius: 50%; background: #238636; display: flex; align-items: center; justify-content: center; font-weight: 700; color: white; font-size: 0.8rem; flex-shrink: 0;">
+                        ${commit.author?.login?.[0]?.toUpperCase() || 'G'}
+                    </div>
+                    <div class="commit-info" style="flex: 1; min-width: 0;">
+                        <div class="commit-author" style="font-weight: 600; font-size: 0.9rem; color: #e7e9ea;">${commit.commit.author.name}</div>
+                        <div class="commit-message" style="font-size: 0.85rem; color: #71767b; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${truncatedMessage}</div>
+                    </div>
+                    <div class="commit-meta" style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0;">
+                        <span class="commit-sha" style="font-family: monospace; font-size: 0.75rem; background: rgba(29, 155, 240, 0.15); color: #1d9bf0; padding: 2px 6px; border-radius: 6px;">${shortSha}</span>
+                        <span class="commit-time" style="font-size: 0.75rem; color: #71767b;">${formatTimestamp(commit.commit.author.date)}</span>
+                    </div>
+                </div>
+            `;
+
+            timeline.appendChild(commitEl);
         });
     }
-    document.getElementById('github-mobile-back')?.addEventListener('click', () => {
-        document.getElementById('tab-home')?.click();
-        hideGitHubPage();
+}
+
+// Update dashboard
+function updateDashboard() {
+    // Posts this week
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const postsThisWeek = allPosts.filter(p => new Date(p.timestamp) > weekAgo && !p.is_issue).length;
+    document.getElementById('stat-posts-week').textContent = postsThisWeek;
+
+    // Total milestones
+    const milestones = allPosts.filter(p => p.is_milestone).length;
+    document.getElementById('stat-milestones').textContent = milestones;
+
+    // Open issues
+    const issues = allPosts.filter(p => p.is_issue).length;
+    document.getElementById('stat-issues').textContent = issues;
+
+    // Most active user (excluding system)
+    const userCounts = {};
+    allPosts.filter(p => !p.is_issue).forEach(p => {
+        userCounts[p.name] = (userCounts[p.name] || 0) + 1;
+    });
+    const mostActive = Object.entries(userCounts).sort((a, b) => b[1] - a[1])[0];
+    document.getElementById('stat-active-user').textContent = mostActive ? mostActive[0] : '—';
+
+    // Chart
+    updatePostsChart();
+}
+
+// Update posts chart
+function updatePostsChart() {
+    const ctx = document.getElementById('posts-chart');
+    if (!ctx) return;
+
+    const last7Days = [];
+    const postCounts = [];
+    const today = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        last7Days.push(dateStr);
+
+        const dayStart = new Date(date.setHours(0, 0, 0, 0));
+        const dayEnd = new Date(date.setHours(23, 59, 59, 999));
+        const count = allPosts.filter(p => {
+            const postDate = new Date(p.timestamp);
+            return postDate >= dayStart && postDate <= dayEnd && !p.is_issue;
+        }).length;
+        postCounts.push(count);
+    }
+
+    if (window.postsChart) {
+        window.postsChart.destroy();
+    }
+
+    window.postsChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: last7Days,
+            datasets: [{
+                label: 'Posts',
+                data: postCounts,
+                backgroundColor: 'rgba(29, 155, 240, 0.6)',
+                borderColor: 'rgba(29, 155, 240, 1)',
+                borderWidth: 2,
+                borderRadius: 8
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1,
+                        color: '#71767b'
+                    },
+                    grid: {
+                        color: 'rgba(47, 51, 54, 0.5)'
+                    }
+                },
+                x: {
+                    ticks: { color: '#71767b' },
+                    grid: { display: false }
+                }
+            }
+        }
+    });
+}
+
+// Update profile
+function updateProfile() {
+    const userPosts = allPosts.filter(p => {
+        const savedName = localStorage.getItem('atlas_display_name');
+        return savedName && p.name === savedName && !p.is_issue;
     });
 
-    // === PULL TO REFRESH ===
-    if (appBody) {
-        let startY = 0;
-        appBody.addEventListener('touchstart', e => startY = e.touches[0].clientY);
-        appBody.addEventListener('touchmove', e => {
-            const y = e.touches[0].clientY;
-            if (appBody.scrollTop <= 2 && y - startY > 20) appBody.classList.add('pull-ready');
-        });
-        appBody.addEventListener('touchend', () => {
-            if (appBody.classList.contains('pull-ready')) {
-                loadFeed(); loadGitHubSidebar();
-                setTimeout(() => appBody.classList.remove('pull-ready'), 800);
-            }
-        });
+    document.getElementById('user-posts-count').textContent = userPosts.length;
+
+    // Count reactions given
+    let reactionsCount = 0;
+    allPosts.forEach(p => {
+        if (p.reactions) {
+            Object.values(p.reactions).forEach(arr => {
+                if (arr.includes(USER_ID)) reactionsCount++;
+            });
+        }
+    });
+    document.getElementById('user-reactions-count').textContent = reactionsCount;
+}
+
+// Export user data
+function exportUserData() {
+    const savedName = localStorage.getItem('atlas_display_name');
+    if (!savedName) {
+        alert('No profile name set');
+        return;
     }
 
-    // === INITIAL LOAD ===
-    loadFeed();
-    loadGitHubSidebar(true);
-    setInterval(() => loadGitHubSidebar(true), 3 * 60 * 1000);
-});
+    const userPosts = allPosts.filter(p => p.name === savedName && !p.is_issue);
+
+    let data = `# My Atlas Auto Progress Data\n\n`;
+    data += `Name: ${savedName}\n`;
+    data += `User ID: ${USER_ID}\n`;
+    data += `Total Posts: ${userPosts.length}\n\n`;
+    data += `## My Posts\n\n`;
+
+    userPosts.forEach(post => {
+        data += `### ${new Date(post.timestamp).toLocaleString()}\n`;
+        data += `${post.content}\n\n`;
+    });
+
+    const blob = new Blob([data], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `atlas-my-data-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// Generate changelog
+function generateChangelog() {
+    const grouped = {};
+
+    allPosts.filter(p => !p.is_issue).forEach(post => {
+        const date = new Date(post.timestamp).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+        if (!grouped[date]) grouped[date] = [];
+        grouped[date].push(post);
+    });
+
+    let markdown = '# Atlas Auto Progress - Changelog\n\n';
+    markdown += `Generated on ${new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    })}\n\n`;
+    markdown += '---\n\n';
+
+    Object.entries(grouped).sort((a, b) => new Date(b[0]) - new Date(a[0])).forEach(([date, posts]) => {
+        markdown += `## ${date}\n\n`;
+        posts.forEach(post => {
+            const prefix = post.is_milestone ? '⭐ **MILESTONE** ' : '- ';
+            const content = post.content.replace(/\n/g, ' ');
+            markdown += `${prefix}${content} _(by ${post.name})_\n`;
+        });
+        markdown += '\n';
+    });
+
+    // Download
+    const blob = new Blob([markdown], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `atlas-changelog-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
