@@ -3,6 +3,7 @@ const SUPABASE_URL = 'https://rikenjfgogyhdhjcasse.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpa2VuamZnb2d5aGRoamNhc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMyMDU0MTcsImV4cCI6MjA3ODc4MTQxN30.bijOb9mbVA1sXePkRI7mRHMuv1GR8v_Bj0HTBab8Thw';
 const PASSWORD = 'duszaverseny2025';
 const GITHUB_REPO = 'duplaA/atlasauto'; // CASE SENSITIVE! Use exact repo name from GitHub
+const GITHUB_TOKEN = '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'; // Optional: Add GitHub token for higher rate limits
 
 const { createClient } = supabase;
 const _supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
