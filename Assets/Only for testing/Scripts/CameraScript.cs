@@ -16,8 +16,8 @@ public class Camera : MonoBehaviour
     public float scrollSensitivity = 0.5f;
 
     [Header("Limits")]
-    public float minVerticalAngle = 30f;
-    public float maxVerticalAngle = -90;
+    public float minVerticalAngle = 90;
+    public float maxVerticalAngle = -30;
 
     // track angles
     private float _currentX = 0f;
