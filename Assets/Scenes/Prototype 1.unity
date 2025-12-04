@@ -1124,6 +1124,12 @@ MonoBehaviour:
   steeringRange: 40
   steeringRangeAtMaxSpeed: 15
   centreOfGravityOffset: -1
+  suspensionDistance: 0.2
+  frictionExtremumSlip: 3
+  frictionExtremumValue: 3
+  frictionAsymptoteSlip: 1
+  frictionAsymptoteValue: 1.5
+  frictionStiffness: 2
 --- !u!114 &1086762340
 MonoBehaviour:
   m_ObjectHideFlags: 0
