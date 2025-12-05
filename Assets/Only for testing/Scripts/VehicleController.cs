@@ -41,11 +41,11 @@ public class VehicleController : MonoBehaviour
     public Transform wheelModel_RR;
     public bool isSteer_RR;
     public bool isMotor_RR;
-    
+
     Vector3 position;
     Quaternion rotation;
-    
-    [Header("Car Properties (Auto-configured by preset)")] 
+
+    [Header("Car Properties (Auto-configured by preset)")]
     public float mass = 2100f;
     public float motorTorque = 2500f;
     public float brakeTorque = 3500f;
@@ -53,10 +53,10 @@ public class VehicleController : MonoBehaviour
     public float steeringRange = 30f;
     public float steeringRangeAtMaxSpeed = 10f;
     public float centreOfGravityOffset = -0.5f;
-    
+
     [Header("Suspension Settings")]
     public float suspensionDistance = 0.2f;
-    
+
     [Header("Traction Control (Auto-configured)")]
     public bool enableTC = true;
     public float slipThreshold = 0.15f;
@@ -67,12 +67,12 @@ public class VehicleController : MonoBehaviour
     private float loadSensitivity;
     private float combinedSlipAlpha;
     private float staticCamber;
-    
+
     private float baseSideExtremumSlip;
     private float baseSideExtremumValue;
     private float baseSideAsymptoteSlip;
     private float baseSideAsymptoteValue;
-    
+
     private float baseFwdExtremumSlip;
     private float baseFwdExtremumValue;
     private float baseFwdAsymptoteSlip;
@@ -81,11 +81,11 @@ public class VehicleController : MonoBehaviour
     private float baseStiffness;
     private float torqueLimitSafetyFactor;
     private float gripMultiplier;
-    
-    private Vector2 cachedInput;
+
+    public Vector2 cachedInput { get; private set; }
     private Rigidbody _rb;
     private VehicleControls carControls;
-    
+
     private float mass_front_corner;
     private float mass_rear_corner;
     private float nominalFz;
@@ -100,19 +100,19 @@ public class VehicleController : MonoBehaviour
 
     private float k;
     private float c;
-    
+
     private class WheelData
     {
         public WheelCollider Collider;
         public Transform Model;
         public bool IsSteer;
         public bool IsMotor;
-        
-        public float currentExtremumValue; 
+
+        public float currentExtremumValue;
         public float currentStiffness;
         public float currentExtremumSlip;
     }
-    
+
     private WheelData[] allWheels;
 
     // --- PRESET CONFIGURATIONS ---
@@ -127,7 +127,7 @@ public class VehicleController : MonoBehaviour
         public float steeringRangeAtMaxSpeed;
         public float centreOfGravityOffset;
         public float suspensionDistance;
-        
+
         // Friction parameters
         public float targetMu;
         public float loadSensitivity;
@@ -135,31 +135,43 @@ public class VehicleController : MonoBehaviour
         public float staticCamber;
         public float gripMultiplier;
         public float torqueLimitSafetyFactor;
-        
+
         // Forward friction
         public float fwdExtremumSlip;
         public float fwdExtremumValue;
         public float fwdAsymptoteSlip;
         public float fwdAsymptoteValue;
-        
+
         // Sideways friction
         public float sideExtremumSlip;
         public float sideExtremumValue;
         public float sideAsymptoteSlip;
         public float sideAsymptoteValue;
-        
+
         public float baseStiffness;
-        
+
         // Suspension
         public springFrequency springFreq;
         public dampRatio dampingRatio;
         public frontRearBias weightBias;
-        
+
         // Traction control
         public bool enableTC;
         public float slipThreshold;
         public float tcAgression;
     }
+
+    public float WheelRadiusFront => WheelCollider_FL != null ? WheelCollider_FL.radius : 0.35f;
+    public float WheelRadiusRear => WheelCollider_RL != null ? WheelCollider_RL.radius : 0.35f;
+
+    public float AverageWheelRadius =>
+        (WheelRadiusFront + WheelRadiusRear) * 0.5f;
+
+    public float MotorTorqueMax => motorTorque;
+    public float BrakeTorqueMax => brakeTorque;
+    public float MaxVehicleSpeed => maxSpeed;
+
+
 
     private VehiclePresetConfig GetPresetConfig(VehiclePreset preset)
     {
@@ -176,30 +188,30 @@ public class VehicleController : MonoBehaviour
                     steeringRangeAtMaxSpeed = 12f,
                     centreOfGravityOffset = -0.3f,
                     suspensionDistance = 0.25f,
-                    
+
                     targetMu = 1.0f,
                     loadSensitivity = 0.03f,
                     combinedSlipAlpha = 0.3f,
                     staticCamber = -0.5f,
                     gripMultiplier = 1.2f,
                     torqueLimitSafetyFactor = 0.75f,
-                    
+
                     fwdExtremumSlip = 0.4f,
                     fwdExtremumValue = 1.1f,
                     fwdAsymptoteSlip = 1.0f,
                     fwdAsymptoteValue = 0.7f,
-                    
+
                     sideExtremumSlip = 0.15f,
                     sideExtremumValue = 1.0f,
                     sideAsymptoteSlip = 0.4f,
                     sideAsymptoteValue = 0.65f,
-                    
+
                     baseStiffness = 1.1f,
-                    
+
                     springFreq = springFrequency.comfort,
                     dampingRatio = dampRatio.comfort,
                     weightBias = frontRearBias.sixty_forty,
-                    
+
                     enableTC = true,
                     slipThreshold = 0.25f,
                     tcAgression = 0.6f
@@ -216,30 +228,30 @@ public class VehicleController : MonoBehaviour
                     steeringRangeAtMaxSpeed = 15f,
                     centreOfGravityOffset = -0.2f,
                     suspensionDistance = 0.3f,
-                    
+
                     targetMu = 0.95f,
                     loadSensitivity = 0.04f,
                     combinedSlipAlpha = 0.35f,
                     staticCamber = -0.3f,
                     gripMultiplier = 1.3f,
                     torqueLimitSafetyFactor = 0.7f,
-                    
+
                     fwdExtremumSlip = 0.45f,
                     fwdExtremumValue = 1.05f,
                     fwdAsymptoteSlip = 1.1f,
                     fwdAsymptoteValue = 0.65f,
-                    
+
                     sideExtremumSlip = 0.18f,
                     sideExtremumValue = 0.95f,
                     sideAsymptoteSlip = 0.45f,
                     sideAsymptoteValue = 0.6f,
-                    
+
                     baseStiffness = 1.15f,
-                    
+
                     springFreq = springFrequency.comfort,
                     dampingRatio = dampRatio.comfort,
                     weightBias = frontRearBias.fifty_fifty,
-                    
+
                     enableTC = true,
                     slipThreshold = 0.3f,
                     tcAgression = 0.5f
@@ -256,30 +268,30 @@ public class VehicleController : MonoBehaviour
                     steeringRangeAtMaxSpeed = 8f,
                     centreOfGravityOffset = -0.4f,
                     suspensionDistance = 0.18f,
-                    
+
                     targetMu = 0.95f,
                     loadSensitivity = 0.06f,
                     combinedSlipAlpha = 0.4f,
                     staticCamber = -1.0f,
                     gripMultiplier = 1.0f,
                     torqueLimitSafetyFactor = 0.85f,
-                    
+
                     fwdExtremumSlip = 0.35f,
                     fwdExtremumValue = 1.05f,
                     fwdAsymptoteSlip = 0.9f,
                     fwdAsymptoteValue = 0.65f,
-                    
+
                     sideExtremumSlip = 0.12f,
                     sideExtremumValue = 1.0f,
                     sideAsymptoteSlip = 0.35f,
                     sideAsymptoteValue = 0.6f,
-                    
+
                     baseStiffness = 1.0f,
-                    
+
                     springFreq = springFrequency.comfort,
                     dampingRatio = dampRatio.comfort,
                     weightBias = frontRearBias.sixty_forty,
-                    
+
                     enableTC = true,
                     slipThreshold = 0.2f,
                     tcAgression = 0.7f
@@ -296,30 +308,30 @@ public class VehicleController : MonoBehaviour
                     steeringRangeAtMaxSpeed = 6f,
                     centreOfGravityOffset = -0.5f,
                     suspensionDistance = 0.15f,
-                    
+
                     targetMu = 1.0f,
                     loadSensitivity = 0.07f,
                     combinedSlipAlpha = 0.45f,
                     staticCamber = -1.5f,
                     gripMultiplier = 1.05f,
                     torqueLimitSafetyFactor = 0.88f,
-                    
+
                     fwdExtremumSlip = 0.3f,
                     fwdExtremumValue = 1.1f,
                     fwdAsymptoteSlip = 0.8f,
                     fwdAsymptoteValue = 0.7f,
-                    
+
                     sideExtremumSlip = 0.1f,
                     sideExtremumValue = 1.05f,
                     sideAsymptoteSlip = 0.3f,
                     sideAsymptoteValue = 0.65f,
-                    
+
                     baseStiffness = 1.05f,
-                    
+
                     springFreq = springFrequency.sport,
                     dampingRatio = dampRatio.sport,
                     weightBias = frontRearBias.fifty_fifty,
-                    
+
                     enableTC = true,
                     slipThreshold = 0.18f,
                     tcAgression = 0.75f
@@ -336,30 +348,30 @@ public class VehicleController : MonoBehaviour
                     steeringRangeAtMaxSpeed = 5f,
                     centreOfGravityOffset = -0.55f,
                     suspensionDistance = 0.12f,
-                    
+
                     targetMu = 1.05f,
                     loadSensitivity = 0.08f,
                     combinedSlipAlpha = 0.5f,
                     staticCamber = -2.0f,
                     gripMultiplier = 1.1f,
                     torqueLimitSafetyFactor = 0.9f,
-                    
+
                     fwdExtremumSlip = 0.25f,
                     fwdExtremumValue = 1.15f,
                     fwdAsymptoteSlip = 0.7f,
                     fwdAsymptoteValue = 0.75f,
-                    
+
                     sideExtremumSlip = 0.08f,
                     sideExtremumValue = 1.1f,
                     sideAsymptoteSlip = 0.25f,
                     sideAsymptoteValue = 0.7f,
-                    
+
                     baseStiffness = 1.1f,
-                    
+
                     springFreq = springFrequency.sport,
                     dampingRatio = dampRatio.sport,
                     weightBias = frontRearBias.forty_sixty,
-                    
+
                     enableTC = true,
                     slipThreshold = 0.15f,
                     tcAgression = 0.8f
@@ -376,30 +388,30 @@ public class VehicleController : MonoBehaviour
                     steeringRangeAtMaxSpeed = 4f,
                     centreOfGravityOffset = -0.6f,
                     suspensionDistance = 0.1f,
-                    
+
                     targetMu = 1.15f,
                     loadSensitivity = 0.1f,
                     combinedSlipAlpha = 0.6f,
                     staticCamber = -2.5f,
                     gripMultiplier = 1.2f,
                     torqueLimitSafetyFactor = 0.92f,
-                    
+
                     fwdExtremumSlip = 0.2f,
                     fwdExtremumValue = 1.2f,
                     fwdAsymptoteSlip = 0.6f,
                     fwdAsymptoteValue = 0.8f,
-                    
+
                     sideExtremumSlip = 0.06f,
                     sideExtremumValue = 1.15f,
                     sideAsymptoteSlip = 0.2f,
                     sideAsymptoteValue = 0.75f,
-                    
+
                     baseStiffness = 1.2f,
-                    
+
                     springFreq = springFrequency.sport,
                     dampingRatio = dampRatio.sport,
                     weightBias = frontRearBias.forty_sixty,
-                    
+
                     enableTC = true,
                     slipThreshold = 0.12f,
                     tcAgression = 0.85f
@@ -426,30 +438,30 @@ public class VehicleController : MonoBehaviour
         steeringRangeAtMaxSpeed = config.steeringRangeAtMaxSpeed;
         centreOfGravityOffset = config.centreOfGravityOffset;
         suspensionDistance = config.suspensionDistance;
-        
+
         targetMu = config.targetMu;
         loadSensitivity = config.loadSensitivity;
         combinedSlipAlpha = config.combinedSlipAlpha;
         staticCamber = config.staticCamber;
         gripMultiplier = config.gripMultiplier;
         torqueLimitSafetyFactor = config.torqueLimitSafetyFactor;
-        
+
         baseFwdExtremumSlip = config.fwdExtremumSlip;
         baseFwdExtremumValue = config.fwdExtremumValue;
         baseFwdAsymptoteSlip = config.fwdAsymptoteSlip;
         baseFwdAsymptoteValue = config.fwdAsymptoteValue;
-        
+
         baseSideExtremumSlip = config.sideExtremumSlip;
         baseSideExtremumValue = config.sideExtremumValue;
         baseSideAsymptoteSlip = config.sideAsymptoteSlip;
         baseSideAsymptoteValue = config.sideAsymptoteValue;
-        
+
         baseStiffness = config.baseStiffness;
-        
+
         _springFrequency = config.springFreq;
         _dampRatio = config.dampingRatio;
         _frontRearBias = config.weightBias;
-        
+
         enableTC = config.enableTC;
         slipThreshold = config.slipThreshold;
         tcAgression = config.tcAgression;
@@ -461,13 +473,13 @@ public class VehicleController : MonoBehaviour
     void Awake()
     {
         ApplyPreset();
-        
+
         _rb = GetComponent<Rigidbody>();
 
         carControls = new VehicleControls();
         carControls.Vehicle.Move.performed += ctx => cachedInput = ctx.ReadValue<Vector2>();
         carControls.Vehicle.Move.canceled += ctx => cachedInput = Vector2.zero;
-        
+
         allWheels = new WheelData[]
         {
             new WheelData { Collider = WheelCollider_FL, Model = wheelModel_FL, IsSteer = isSteer_FL, IsMotor = isMotor_FL },
@@ -476,7 +488,7 @@ public class VehicleController : MonoBehaviour
             new WheelData { Collider = WheelCollider_RR, Model = wheelModel_RR, IsSteer = isSteer_RR, IsMotor = isMotor_RR }
         };
 
-        foreach(var w in allWheels)
+        foreach (var w in allWheels)
         {
             w.currentExtremumValue = baseSideExtremumValue;
             w.currentStiffness = baseStiffness;
@@ -486,12 +498,12 @@ public class VehicleController : MonoBehaviour
 
     void OnEnable()
     {
-        if(carControls != null) carControls.Enable();
+        if (carControls != null) carControls.Enable();
     }
 
     void OnDisable()
     {
-        if(carControls != null) carControls.Disable();
+        if (carControls != null) carControls.Disable();
     }
 
     void Start()
@@ -505,7 +517,7 @@ public class VehicleController : MonoBehaviour
         if (_rb != null)
         {
             _rb.mass = mass;
-            _rb.centerOfMass = new Vector3(0, centreOfGravityOffset, 0); 
+            _rb.centerOfMass = new Vector3(0, centreOfGravityOffset, 0);
         }
 
         switch (_frontRearBias)
@@ -537,7 +549,7 @@ public class VehicleController : MonoBehaviour
             asymptoteValue = baseSideAsymptoteValue,
             stiffness = baseStiffness
         };
-        
+
         WheelFrictionCurve fwdFriction = new WheelFrictionCurve
         {
             extremumSlip = baseFwdExtremumSlip,
@@ -546,31 +558,31 @@ public class VehicleController : MonoBehaviour
             asymptoteValue = baseFwdAsymptoteValue,
             stiffness = baseStiffness
         };
-        
+
         foreach (var wheel in allWheels)
         {
             if (wheel.Collider == null) continue;
 
             var currentSpring = wheel.Collider.suspensionSpring;
-            
+
             float springMass = wheel.Model.name.ToLower().Contains("f") ? mass_front_corner : mass_rear_corner;
-            float freq = _springFrequency == springFrequency.sport ? 
-                (wheel.Model.name.ToLower().Contains("f") ? 2.3f : 1.9f) : 
+            float freq = _springFrequency == springFrequency.sport ?
+                (wheel.Model.name.ToLower().Contains("f") ? 2.3f : 1.9f) :
                 (wheel.Model.name.ToLower().Contains("f") ? 1.8f : 1.5f);
 
             k = springMass * Mathf.Pow(2 * Mathf.PI * freq, 2);
 
             float dampingRatio = _dampRatio == dampRatio.sport ? 0.25f : 0.15f;
             c = 2f * dampingRatio * Mathf.Sqrt(k * springMass);
-            
+
             currentSpring.spring = k;
             currentSpring.damper = c;
             currentSpring.targetPosition = 0.5f;
-            
+
             wheel.Collider.suspensionSpring = currentSpring;
             wheel.Collider.suspensionDistance = suspensionDistance;
-            wheel.Collider.wheelDampingRate = 0.5f; 
-            wheel.Collider.forceAppPointDistance = 0f; 
+            wheel.Collider.wheelDampingRate = 0.5f;
+            wheel.Collider.forceAppPointDistance = 0f;
 
             wheel.Collider.forwardFriction = fwdFriction;
             wheel.Collider.sidewaysFriction = sideFriction;
@@ -592,18 +604,18 @@ public class VehicleController : MonoBehaviour
             SyncWheel(wheel.Collider, wheel.Model);
         }
     }
-    
+
     void FixedUpdate()
     {
-        float vInput = cachedInput.y; 
+        float vInput = cachedInput.y;
         float hInput = cachedInput.x;
 
         float forwardSpeed = transform.InverseTransformDirection(_rb.linearVelocity).z;
         float speedFactor = Mathf.InverseLerp(0, maxSpeed, Mathf.Abs(forwardSpeed));
-        
-        float currentMotorTorque = Mathf.Lerp(motorTorque, motorTorque * 0.5f, speedFactor); 
+
+        float currentMotorTorque = Mathf.Lerp(motorTorque, motorTorque * 0.5f, speedFactor);
         float currentSteerRange = Mathf.Lerp(steeringRange, steeringRangeAtMaxSpeed, speedFactor);
-        
+
         foreach (var wheel in allWheels)
         {
             UpdateWheelFriction(wheel);
@@ -615,15 +627,15 @@ public class VehicleController : MonoBehaviour
     void UpdateWheelFriction(WheelData wheel)
     {
         WheelHit hit;
-        if (!wheel.Collider.GetGroundHit(out hit)) return; 
+        if (!wheel.Collider.GetGroundHit(out hit)) return;
 
         float currentFz = hit.force;
         float loadFactor = 1.0f - loadSensitivity * ((currentFz / nominalFz) - 1.0f);
         loadFactor = Mathf.Clamp(loadFactor, 0.7f, 1.05f);
 
         float compression = 1.0f - ((hit.point - wheel.Collider.transform.position).magnitude / wheel.Collider.suspensionDistance);
-        float dynamicCamber = staticCamber - (compression * 2.0f); 
-        float camberFactor = 1.0f + (Mathf.Abs(dynamicCamber) * 0.015f); 
+        float dynamicCamber = staticCamber - (compression * 2.0f);
+        float camberFactor = 1.0f + (Mathf.Abs(dynamicCamber) * 0.015f);
         camberFactor = Mathf.Clamp(camberFactor, 0.95f, 1.1f);
 
         float s_long = Mathf.Clamp(Mathf.Abs(hit.forwardSlip), 0f, 1.5f);
@@ -636,8 +648,8 @@ public class VehicleController : MonoBehaviour
         WheelFrictionCurve sideCurve = wheel.Collider.sidewaysFriction;
         sideCurve.extremumSlip = baseSideExtremumSlip;
         sideCurve.extremumValue = finalSideExtremum;
-        sideCurve.stiffness = baseStiffness; 
-        sideCurve.asymptoteValue = finalSideExtremum * 0.65f; 
+        sideCurve.stiffness = baseStiffness;
+        sideCurve.asymptoteValue = finalSideExtremum * 0.65f;
         sideCurve.asymptoteSlip = baseSideExtremumSlip * 2.8f;
         wheel.Collider.sidewaysFriction = sideCurve;
 
@@ -654,12 +666,12 @@ public class VehicleController : MonoBehaviour
     void ApplyWheelForces(WheelData wheelData, float hInput, float vInput, float currentSteerRange, float nominalMotorTorque, float brakeTorque, float forwardSpeed)
     {
         WheelCollider wheel = wheelData.Collider;
-        
+
         if (wheelData.IsSteer)
         {
             wheel.steerAngle = hInput * currentSteerRange;
         }
-        
+
         if (wheelData.IsMotor)
         {
             float targetTorque = 0f;
@@ -671,13 +683,13 @@ public class VehicleController : MonoBehaviour
             if (isAccelerating && sameDirection)
             {
                 WheelHit hit;
-                if(wheel.GetGroundHit(out hit))
+                if (wheel.GetGroundHit(out hit))
                 {
                     float wheelRadius = wheel.radius;
                     float Fz = hit.force;
-                    
+
                     float muLong = baseFwdExtremumValue * gripMultiplier * 0.9f;
-                    
+
                     float maxForce = muLong * Fz;
                     float maxWheelTorque = maxForce * wheelRadius;
                     float allowedTorque = maxWheelTorque * torqueLimitSafetyFactor;
@@ -703,16 +715,16 @@ public class VehicleController : MonoBehaviour
             }
             else
             {
-                targetBrake = 10f; 
+                targetBrake = 10f;
             }
 
             wheel.motorTorque = targetTorque;
             wheel.brakeTorque = targetBrake;
         }
-        else 
+        else
         {
-             wheel.brakeTorque = 0;
-             wheel.motorTorque = 0;
+            wheel.brakeTorque = 0;
+            wheel.motorTorque = 0;
         }
     }
 }
