@@ -1101,14 +1101,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3a4ed6e409ab7824c840aeaf552c5373, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  vehiclePreset: 0
   WheelCollider_FL: {fileID: 1684082294}
   wheelModel_FL: {fileID: 2001829362}
   isSteer_FL: 1
-  isMotor_FL: 0
+  isMotor_FL: 1
   WheelCollider_FR: {fileID: 69888924}
   wheelModel_FR: {fileID: 1144556518}
   isSteer_FR: 1
-  isMotor_FR: 0
+  isMotor_FR: 1
   WheelCollider_RL: {fileID: 443637855}
   wheelModel_RL: {fileID: 836799751}
   isSteer_RL: 0
@@ -1118,18 +1119,19 @@ MonoBehaviour:
   isSteer_RR: 0
   isMotor_RR: 1
   mass: 2100
-  motorTorque: 3000
-  brakeTorque: 2000
-  maxSpeed: 75
-  steeringRange: 40
-  steeringRangeAtMaxSpeed: 15
-  centreOfGravityOffset: -1
+  motorTorque: 3500
+  brakeTorque: 3500
+  maxSpeed: 20
+  steeringRange: 30
+  steeringRangeAtMaxSpeed: 10
+  centreOfGravityOffset: -0.5
   suspensionDistance: 0.2
-  frictionExtremumSlip: 3
-  frictionExtremumValue: 3
-  frictionAsymptoteSlip: 1
-  frictionAsymptoteValue: 1.5
-  frictionStiffness: 2
+  enableTC: 1
+  slipThreshold: 0.15
+  tcAgression: 0.8
+  _springFrequency: 1
+  _dampRatio: 1
+  _frontRearBias: 1
 --- !u!114 &1086762340
 MonoBehaviour:
   m_ObjectHideFlags: 0
