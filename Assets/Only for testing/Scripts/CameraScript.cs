@@ -36,7 +36,6 @@ public class Camera : MonoBehaviour
 
     void LateUpdate()
     {
-        if (target == null) return;
         // Handle Input
         if (_mouseDevice != null && _mouseDevice.rightButton.isPressed)
         {

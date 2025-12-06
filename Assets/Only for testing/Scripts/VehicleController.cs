@@ -565,10 +565,10 @@ public class VehicleController : MonoBehaviour
 
             var currentSpring = wheel.Collider.suspensionSpring;
 
-            float springMass = wheel.Model.name.ToLower().Contains("f") ? mass_front_corner : mass_rear_corner;
+            float springMass = wheel.Model.name.ToLower().Contains("F") ? mass_front_corner : mass_rear_corner;
             float freq = _springFrequency == springFrequency.sport ?
-                (wheel.Model.name.ToLower().Contains("f") ? 2.3f : 1.9f) :
-                (wheel.Model.name.ToLower().Contains("f") ? 1.8f : 1.5f);
+                (wheel.Model.name.ToLower().Contains("F") ? 2.3f : 1.9f) :
+                (wheel.Model.name.ToLower().Contains("F") ? 1.8f : 1.5f);
 
             k = springMass * Mathf.Pow(2 * Mathf.PI * freq, 2);
 
