@@ -1,0 +1,54 @@
+<ui:UXML xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" noNamespaceSchemaLocation="../../UIElementsSchema/UIElements.xsd" editor-extension-mode="True">
+    <Style src="project://database/Assets/Editor/Assets/EditorStyling.uss?fileID=7433441132597879392&amp;guid=009c440f22aeeb443b0f607559068a6b&amp;type=3#EditorStyling" />
+    <ui:VisualElement name="ModelTab" style="flex-grow: 1; width: 100%; height: 100%; display: none;">
+        <ui:VisualElement name="InitialState" style="flex-grow: 1;">
+            <ui:Label text="No model selected" name="Integrity" style="-unity-text-align: upper-center; font-size: 21px;" />
+            <uie:ObjectField label="Car Model" name="ModelInputField" />
+            <ui:VisualElement style="flex-grow: 1; flex-direction: row; align-self: center; justify-content: flex-start; align-items: auto;">
+                <ui:Button text="Begin Authoring" name="Begin" enabled="false" style="font-size: 24px;" />
+            </ui:VisualElement>
+            <ui:VisualElement name="Parts" style="flex-grow: 1; height: 100%; display: flex; visibility: hidden;">
+                <ui:Label text="Car Parts" style="font-size: 23%;" />
+                <ui:ScrollView vertical-scroller-visibility="Auto" horizontal-scroller-visibility="Hidden" name="CarParts" style="visibility: hidden;">
+                    <ui:Label text="Wheels" style="font-size: 18%;" />
+                    <ui:Label text="Wheels Front" style="-unity-paragraph-spacing: 0; -unity-text-align: upper-left; left: 1%; font-size: 16px;" />
+                    <uie:ObjectField label="Wheel Front Left" name="WheelFL" style="left: 2%; width: 95%;" />
+                    <uie:ObjectField label="Wheel Front Right" name="WheelFR" style="left: 2%; width: 95%;" />
+                    <ui:Label text="Wheels Rear" style="-unity-paragraph-spacing: 0; -unity-text-align: upper-left; left: 1%; font-size: 16px;" />
+                    <uie:ObjectField label="Wheel Rear Left" name="WheelRL" style="left: 2%; width: 95%;" />
+                    <uie:ObjectField label="Wheel Rear Right" name="WheelRR" style="left: 2%; width: 95%;" />
+                </ui:ScrollView>
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+    <ui:VisualElement name="AuthoringTab" style="flex-grow: 1; height: 100%; width: 100%; flex-direction: row; display: flex;">
+        <ui:VisualElement name="Sidebar" style="flex-grow: 1; background-size: 40% 100%; width: 30%; align-items: stretch;">
+            <ui:VisualElement style="height: 25%; background-image: url(&quot;project://database/Assets/Editor/Assets/Logo.png?fileID=2800000&amp;guid=5340dff620c8c2d49931bd48053b8e21&amp;type=3#Logo&quot;); background-size: 100% 150%;" />
+            <ui:Button text="Preview" name="PreviewBtn" />
+            <ui:Label text="Tuning" style="-unity-text-align: upper-center;" />
+            <ui:VisualElement name="BtnSidebar" style="height: auto;" />
+            <ui:Label text="Finalization" style="-unity-text-align: upper-center;" />
+            <ui:Button text="Add to current scene" name="ImportBtn" />
+            <ui:Button text="Add as Prefab" name="PrefabBtn" />
+        </ui:VisualElement>
+        <ui:VisualElement name="Content" style="flex-grow: 1; width: 100%;">
+            <ui:VisualElement name="PreviewPage" style="flex-grow: 1; width: 100%; height: 100%; align-items: center; display: flex;">
+                <ui:VisualElement name="PreviewVid" style="width: 512px; height: 512px; background-color: rgb(0, 132, 255); top: auto; margin-top: 5%; margin-right: 5%; margin-bottom: 5%; margin-left: 5%;">
+                    <ui:VisualElement style="flex-grow: 1; background-size: 100% 100%; width: 50%; height: 50%; max-height: 35%; color: rgba(255, 255, 255, 0.79); background-color: rgba(255, 255, 255, 0.45);">
+                        <ui:VisualElement style="flex-direction: row;">
+                            <ui:Label text="Currently selected" enable-rich-text="false" double-click-selects-word="false" triple-click-selects-line="false" display-tooltip-when-elided="false" />
+                            <ui:Label text="&lt;b&gt;NOTHING&lt;/b&gt;" name="CurrentlySelected" />
+                        </ui:VisualElement>
+                        <ui:Label text="Since you have nothing selected there is no data to show :)&#10;Hover over a green outlined element to view it&apos;s properties!" triple-click-selects-line="false" double-click-selects-word="false" display-tooltip-when-elided="false" name="DataText" style="white-space: normal;" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement style="flex-grow: 1; width: 100%; height: 100%; display: none;">
+                <ui:ScrollView name="TuningPage" horizontal-scroller-visibility="Hidden" vertical-scroller-visibility="Auto" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+    <ui:VisualElement name="Footer" style="flex-grow: 1; height: 5%;">
+        <ui:Label text="AtlasAuto By DuplaA" style="height: 100%; font-size: 22%;" />
+    </ui:VisualElement>
+</ui:UXML>

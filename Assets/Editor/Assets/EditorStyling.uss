@@ -1,0 +1,16 @@
+.editorProperty {
+    margin-top: 0%;
+}
+
+.editorPropertyLabel {
+    flex-direction: row;
+    justify-content: space-between;
+    padding-right: 3%;
+    padding-left: 3%;
+    background-color: rgb(0, 31, 255);
+}
+
+#TuningPage {
+    justify-content: space-evenly;
+    overflow: hidden;
+}
