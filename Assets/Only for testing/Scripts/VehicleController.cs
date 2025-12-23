@@ -1,153 +1,257 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+/// <summary>
+/// Main vehicle controller using realistic engine physics.
+/// </summary>
+[RequireComponent(typeof(Rigidbody))]
 public class VehicleController : MonoBehaviour
 {
-    [Header("Engine & Transmission")]
-    public bool isElectric = false;
-    public float peakTorqueNm = 450f;
+    [Header("Vehicle Setup")]
+    public float vehicleMass = 1500f;
+    public Vector3 centerOfMassOffset = new Vector3(0, -0.4f, 0.1f);
+
+    [Header("Drive Mode")]
+    public bool isElectricVehicle = false;
+
+    [Header("Engine (synced to VehicleEngine)")]
+    [Tooltip("Peak torque in Nm")]
+    public float torqueNm = 450f;
+    [Tooltip("Maximum engine RPM")]
     public float maxRPM = 7000f;
-    public float idleRPM = 800f;
-    public float[] gearRatios = { 3.5f, 2.1f, 1.4f, 1.0f, 0.75f };
-    public float finalDriveRatio = 3.4f;
+    [Tooltip("Top speed limiter km/h (0 = no limit)")]
+    public float topSpeedKMH = 250f;
 
-    [Header("Physics Settings")]
-    public float maxBrakeTorque = 10000f;
-    public float tyreStiffness = 2.0f;
-    public float gripMultiplier = 1.5f;
+    [Header("Braking")]
+    public float maxBrakeTorque = 5000f;
 
-    // Belső állapotok
-    public float currentRPM;
-    public int currentGear = 0; // -1: R, 0: N, 1-5: D
-    private float speedKMH;
+    [Header("Steering")]
+    [Range(20f, 45f)]
+    public float maxSteerAngle = 35f;
+    public bool speedSensitiveSteering = true;
+
+    [Header("Tire Friction")]
+    [Range(0.5f, 3f)]
+    public float forwardStiffness = 1.2f;
+    [Range(0.5f, 3f)]
+    public float sidewaysStiffness = 1.5f;
+
+    [Header("Components")]
+    public VehicleEngine engine;
+    public VehicleTransmission transmission;
+
+    [Header("Debug")]
+    public float speedKMH;
+    public float speedMS;
+    public float wheelTorqueApplied;
+
+    // Private
     private Vector2 moveInput;
     private Rigidbody rb;
     private VehicleWheel[] wheels;
+    private PlayerInput playerInput;
 
     void Awake()
     {
         rb = GetComponent<Rigidbody>();
-        if (rb) {
-            rb.mass = 1600f;
-            rb.centerOfMass = new Vector3(0, -0.7f, 0.1f);
-        }
+        rb.mass = vehicleMass;
+        rb.centerOfMass = centerOfMassOffset;
+        rb.interpolation = RigidbodyInterpolation.Interpolate;
+
         DiscoverWheels();
+        AutoLinkComponents();
+        CheckPlayerInput();
     }
 
-    public void OnMove(InputValue value) => moveInput = value.Get<Vector2>();
+    void CheckPlayerInput()
+    {
+        playerInput = GetComponent<PlayerInput>();
+        if (playerInput == null)
+        {
+            Debug.LogError("[VehicleController] MISSING PlayerInput component!");
+        }
+    }
+
+    void AutoLinkComponents()
+    {
+        if (engine == null) engine = GetComponent<VehicleEngine>();
+        if (engine == null) engine = gameObject.AddComponent<VehicleEngine>();
+
+        if (transmission == null) transmission = GetComponent<VehicleTransmission>();
+        if (transmission == null) transmission = gameObject.AddComponent<VehicleTransmission>();
+
+        SyncSettings();
+    }
+
+    void SyncSettings()
+    {
+        if (engine != null)
+        {
+            engine.engineType = isElectricVehicle ? VehicleEngine.EngineType.Electric : VehicleEngine.EngineType.InternalCombustion;
+            engine.peakTorqueNm = torqueNm;
+            engine.maxRPM = maxRPM;
+        }
+        if (transmission != null)
+        {
+            transmission.isElectric = isElectricVehicle;
+        }
+    }
+
+    public void OnMove(InputValue value)
+    {
+        moveInput = value.Get<Vector2>();
+    }
+
+    void Update()
+    {
+        if (wheels != null)
+        {
+            foreach (var w in wheels) w.SyncVisuals();
+        }
+        SyncSettings();
+    }
 
     void FixedUpdate()
     {
         if (wheels == null || wheels.Length == 0) return;
 
-        speedKMH = rb.linearVelocity.magnitude * 3.6f;
+        float dt = Time.fixedDeltaTime;
+        
+        // Calculate speed
+        speedMS = rb.linearVelocity.magnitude;
+        speedKMH = speedMS * 3.6f;
+        
         float localVelZ = transform.InverseTransformDirection(rb.linearVelocity).z;
         float inputY = moveInput.y;
 
-        // 1. FÉK ÉS IRÁNYVÁLTÁS LOGIKA
-        float brakeInput = 0;
+        // --- BRAKE & DIRECTION ---
+        float brakeInput = 0f;
         if (localVelZ > 0.5f && inputY < -0.1f) brakeInput = Mathf.Abs(inputY);
         else if (localVelZ < -0.5f && inputY > 0.1f) brakeInput = Mathf.Abs(inputY);
 
-        if (speedKMH < 3f && brakeInput < 0.1f) {
-            if (inputY > 0.1f) currentGear = 1;
-            else if (inputY < -0.1f) currentGear = -1;
-            else currentGear = 0;
+        // Auto gear selection when stopped
+        if (speedKMH < 2f && brakeInput < 0.1f)
+        {
+            if (inputY > 0.1f) transmission.SetDriveMode(1);
+            else if (inputY < -0.1f) transmission.SetDriveMode(-1);
+            else transmission.SetDriveMode(0);
         }
 
-        float throttle = (brakeInput > 0.1f) ? 0 : Mathf.Abs(inputY);
+        float throttle = (brakeInput > 0.1f) ? 0f : Mathf.Abs(inputY);
 
-        // 2. VÁLTÓ ÉS RPM SZINKRON
-        float totalRatio = GetTotalRatio();
-        float avgWheelRPM = 0; int mCount = 0;
-        foreach (var w in wheels) if (w.isMotor) { avgWheelRPM += w.GetRPM(); mCount++; }
-        avgWheelRPM = (mCount > 0) ? avgWheelRPM / mCount : 0;
+        // Top speed limiter
+        if (topSpeedKMH > 0 && speedKMH >= topSpeedKMH)
+        {
+            throttle *= Mathf.Clamp01(1f - (speedKMH - topSpeedKMH) / 10f);
+        }
 
-        UpdateEngineAndGear(throttle, avgWheelRPM, brakeInput);
+        // --- ENGINE & TRANSMISSION UPDATE ---
+        float totalRatio = transmission.GetTotalRatio();
+        
+        // Update engine with vehicle speed (proper physics-based RPM calculation)
+        engine.UpdateEngine(throttle, speedMS, totalRatio, transmission.clutchPosition, dt);
+        
+        // Update transmission
+        transmission.UpdateTransmission(speedKMH, engine.currentRPM, engine.maxRPM, throttle, dt);
 
-        // 3. ERŐK KISZÁMÍTÁSA
-        float engineTorque = GetEngineTorque(throttle);
-        // A hajtott kerekekre jutó nyomaték (differenciálmű szimulációval)
-        float wheelTorque = (engineTorque * totalRatio * 15f) / (mCount > 0 ? mCount : 1);
+        // --- TORQUE TO WHEELS ---
+        // WheelTorque = EngineTorque × GearRatio × FinalDrive
+        float wheelTorque = engine.GetWheelTorque(throttle, totalRatio);
+        
+        // Divide among driven wheels
+        int motorCount = GetMotorWheelCount();
+        float torquePerWheel = wheelTorque / Mathf.Max(1, motorCount);
+        
+        // No torque during shifting
+        if (transmission.IsShifting())
+        {
+            torquePerWheel = 0f;
+        }
 
-        // 4. KERÉK IMPLEMENTÁCIÓ (Fizika + Tapadás)
+        wheelTorqueApplied = torquePerWheel; // Debug
+
+        // --- APPLY TO WHEELS ---
+        float steerAngle = CalculateSteerAngle(moveInput.x);
+
         foreach (var w in wheels)
         {
-            // Tapadás beállítása (Jég-effekt ellen)
             UpdateWheelFriction(w.wheelCollider);
 
-            // Hajtás és Fék alkalmazása
-            if (w.isMotor) w.ApplyTorque(brakeInput > 0.1f ? 0 : wheelTorque);
+            if (w.isMotor)
+            {
+                float appliedTorque = brakeInput > 0.1f ? 0f : torquePerWheel;
+                // Reverse direction for reverse gear
+                if (transmission.currentGear == -1)
+                {
+                    appliedTorque = -Mathf.Abs(appliedTorque);
+                }
+                w.ApplyTorque(appliedTorque);
+            }
+
             w.ApplyBrake(brakeInput * maxBrakeTorque);
-            
-            // Kormányzás
-            if (w.isSteer) w.ApplySteer(moveInput.x * 35f);
+
+            if (w.isSteer)
+            {
+                w.ApplySteer(steerAngle);
+            }
         }
 
-        // Végsebesség korlátozás (leszabályzáskor fizikai ellenállás)
-        rb.linearDamping = (currentRPM >= maxRPM - 100) ? 1.0f : 0.05f;
+        // Minimal drag
+        rb.linearDamping = 0.01f;
     }
 
-    void UpdateEngineAndGear(float throttle, float wheelRPM, float brakeInput)
+    float CalculateSteerAngle(float input)
     {
-        float minRPM = isElectric ? 0 : idleRPM;
-        float physicalRPM = Mathf.Abs(wheelRPM * GetTotalRatio());
-
-        // Fordulatszám esés váltáskor és követés
-        currentRPM = Mathf.Lerp(currentRPM, physicalRPM, Time.fixedDeltaTime * 8f);
-        if (currentRPM < minRPM) currentRPM = Mathf.MoveTowards(currentRPM, minRPM, 2000 * Time.fixedDeltaTime);
-        if (throttle > 0.1f && currentRPM < maxRPM) currentRPM += throttle * 500 * Time.fixedDeltaTime;
-
-        // Automata váltás (ICE esetén)
-        if (!isElectric && currentGear > 0) {
-            if (currentRPM > 5800 && currentGear < gearRatios.Length && speedKMH > currentGear * 20) currentGear++;
-            else if (currentRPM < 2200 && currentGear > 1) currentGear--;
-        }
+        if (!speedSensitiveSteering) return input * maxSteerAngle;
+        float speedFactor = Mathf.InverseLerp(0f, 120f, speedKMH);
+        float reducedAngle = Mathf.Lerp(maxSteerAngle, maxSteerAngle * 0.3f, speedFactor);
+        return input * reducedAngle;
     }
 
-    float GetEngineTorque(float throttle) {
-        if (currentRPM >= maxRPM) return 0;
-        float factor = isElectric ? 1.0f : Mathf.Clamp01(currentRPM / 3000f);
-        return peakTorqueNm * throttle * factor;
+    int GetMotorWheelCount()
+    {
+        int count = 0;
+        foreach (var w in wheels) if (w.isMotor) count++;
+        return count;
     }
 
-    float GetTotalRatio() {
-        if (currentGear == 0) return 0;
-        float ratio = isElectric ? 8.0f : (currentGear == -1 ? -3.2f : gearRatios[currentGear - 1]);
-        return ratio * finalDriveRatio;
-    }
-
-    void UpdateWheelFriction(WheelCollider wc) {
+    void UpdateWheelFriction(WheelCollider wc)
+    {
         WheelFrictionCurve fwd = wc.forwardFriction;
-        fwd.stiffness = tyreStiffness;
-        fwd.extremumValue = gripMultiplier;
+        fwd.stiffness = forwardStiffness;
         wc.forwardFriction = fwd;
 
         WheelFrictionCurve side = wc.sidewaysFriction;
-        side.stiffness = tyreStiffness;
-        side.extremumValue = gripMultiplier;
+        side.stiffness = sidewaysStiffness;
         wc.sidewaysFriction = side;
     }
 
-    void DiscoverWheels() {
-        var colliders = GetComponentsInChildren<WheelCollider>();
-        wheels = new VehicleWheel[colliders.Length];
-        for (int i = 0; i < colliders.Length; i++) {
-            var wc = colliders[i];
-            var vw = wc.gameObject.GetComponent<VehicleWheel>() ?? wc.gameObject.AddComponent<VehicleWheel>();
-            vw.wheelCollider = wc;
-            vw.isMotor = transform.InverseTransformPoint(wc.transform.position).z < 0;
-            vw.isSteer = !vw.isMotor;
-            wheels[i] = vw;
+    void DiscoverWheels()
+    {
+        wheels = GetComponentsInChildren<VehicleWheel>();
+        if (wheels.Length == 0)
+        {
+            Debug.LogWarning("[VehicleController] No VehicleWheel components found.");
         }
     }
 
-    void Update() { if (wheels != null) foreach (var w in wheels) w.SyncVisuals(); }
+    void OnGUI()
+    {
+        if (playerInput == null)
+        {
+            GUI.color = Color.red;
+            GUI.Box(new Rect(Screen.width / 2 - 180, 50, 360, 50), "");
+            GUI.Label(new Rect(Screen.width / 2 - 170, 60, 340, 30), "MISSING PlayerInput component!");
+            GUI.color = Color.white;
+        }
 
-    void OnGUI() {
-        GUI.Box(new Rect(10, 10, 200, 100), "ULTIMATE VEHICLE");
-        GUI.Label(new Rect(20, 30, 180, 20), $"Speed: {speedKMH:F1} km/h");
-        GUI.Label(new Rect(20, 50, 180, 20), $"RPM: {currentRPM:F0}");
-        GUI.Label(new Rect(20, 70, 180, 20), $"Gear: {currentGear} | EV: {isElectric}");
+        string typeLabel = isElectricVehicle ? "EV" : "ICE";
+        GUI.Box(new Rect(10, 10, 280, 160), "VEHICLE TELEMETRY");
+        GUI.Label(new Rect(20, 35, 260, 20), $"Speed: {speedKMH:F1} km/h");
+        GUI.Label(new Rect(20, 55, 260, 20), $"RPM: {engine.currentRPM:F0} / {engine.maxRPM:F0}");
+        GUI.Label(new Rect(20, 75, 260, 20), $"Gear: {transmission.GetGearDisplayString()} | {typeLabel}");
+        GUI.Label(new Rect(20, 95, 260, 20), $"Torque: {engine.outputTorque:F0} Nm");
+        GUI.Label(new Rect(20, 115, 260, 20), $"Power: {engine.GetCurrentPowerHP():F0} HP");
+        GUI.Label(new Rect(20, 135, 260, 20), $"Wheel Torque: {wheelTorqueApplied:F0} Nm");
     }
 }
