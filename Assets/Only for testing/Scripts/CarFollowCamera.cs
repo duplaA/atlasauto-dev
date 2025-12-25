@@ -1,16 +1,15 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-public class CarFollowCamera : MonoBehaviour // Renamed from Camera
+public class CarFollowCamera : MonoBehaviour
 {
     public Transform target;
     public float distance = 10.0f;
     public float minDistance = 2f;
     public float maxDistance = 20f;
-    public float sensitivityX = 5f; // Increased for better feel
+    public float sensitivityX = 5f;
     public float sensitivityY = 5f;
-    
-    // Fixed: Min must be smaller than Max
+
     public float minVerticalAngle = -30f; 
     public float maxVerticalAngle = 60f;
 

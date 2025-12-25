@@ -1,8 +1,9 @@
 using UnityEngine;
 
 /// <summary>
-/// Realistic engine simulation based on proper physics formulas.
-/// RPM is derived from wheel speed through gear ratios.
+/// Stateless engine torque calculator.
+/// Follows strict causality: Input RPM + Throttle -> Output Torque.
+/// Supports both ICE and EV.
 /// </summary>
 public class VehicleEngine : MonoBehaviour
 {
@@ -11,185 +12,151 @@ public class VehicleEngine : MonoBehaviour
     [Header("Engine Type")]
     public EngineType engineType = EngineType.InternalCombustion;
 
-    [Header("Engine Specs")]
-    [Tooltip("Peak torque in Nm")]
+    [Header("Power Output")]
+    [Tooltip("Peak power in Horsepower (HP). Synced with kW.")]
+    public float horsepowerHP = 400f;
+    [Tooltip("Peak power in Kilowatts (kW). Auto-calculated from HP.")]
+    public float maxPowerKW = 300f;
+
+    [Header("Torque")]
+    [Tooltip("Peak torque in Nm (ICE peak or EV constant torque region)")]
     public float peakTorqueNm = 450f;
-    [Tooltip("Maximum engine RPM (redline)")]
-    public float maxRPM = 7000f;
-    [Tooltip("Idle RPM (ICE only)")]
+    [Tooltip("Maximum mechanical RPM")]
+    public float maxRPM = 7500f;
+    [Tooltip("Engine inertia (kg*m^2). Only affects free-revving response.")]
+    public float inertia = 0.2f;
+
+    [Header("Internal Combustion")]
+    [Tooltip("RPM where peak torque is reached")]
+    public float peakTorqueRPM = 4500f;
+    [Tooltip("RPM where peak power is reached (Torque begins to drop significantly)")]
+    public float peakPowerRPM = 6000f;
+    [Tooltip("Idle RPM")]
     public float idleRPM = 850f;
-    [Tooltip("Tire radius in meters (for RPM calculation)")]
-    public float tireRadius = 0.35f;
+    
+    // Auto-generated curve based on peaks
+    private AnimationCurve proceduralTorqueCurve;
 
-    [Header("Engine Inertia")]
-    [Tooltip("How fast engine RPM can change (higher = more responsive)")]
-    public float engineInertia = 0.15f;
-    [Tooltip("Drivetrain efficiency (0.8-0.9 typical)")]
-    [Range(0.7f, 1f)]
-    public float drivetrainEfficiency = 0.85f;
+    [Header("Electric Vehicle")]
+    [Tooltip("RPM where motor transitions from Constant Torque to Constant Power (Base Speed)")]
+    public float evBaseRPM = 3000f;
 
-    [Header("Torque Curve (ICE)")]
-    [Tooltip("Normalized torque vs RPM. X = RPM/maxRPM, Y = torque multiplier")]
-    public AnimationCurve torqueCurve = new AnimationCurve(
-        new Keyframe(0.0f, 0.5f),   // Idle: 50% torque
-        new Keyframe(0.15f, 0.7f),  // Low RPM
-        new Keyframe(0.4f, 0.95f),  // Building
-        new Keyframe(0.6f, 1.0f),   // Peak torque
-        new Keyframe(0.8f, 0.9f),   // Past peak
-        new Keyframe(1.0f, 0.75f)   // Redline
-    );
+    [Header("Friction")]
+    public float frictionTorque = 15f; // Constant drag
+    public float brakingTorque = 60f; // Engine braking at 0 throttle
 
-    [Header("EV Torque Curve")]
-    [Tooltip("EV torque vs RPM. Typically flat then decreasing")]
-    public AnimationCurve evTorqueCurve = new AnimationCurve(
-        new Keyframe(0.0f, 1.0f),   // Instant torque
-        new Keyframe(0.3f, 1.0f),   // Flat peak
-        new Keyframe(0.6f, 0.85f),  // Decreasing
-        new Keyframe(1.0f, 0.5f)    // High speed falloff
-    );
-
-    [Header("Engine State")]
+    [Header("State")]
     public float currentRPM;
-    public float targetRPM;
-    public float outputTorque;
+    public float currentLoad; // 0..1, for UI/Sound
 
-    /// <summary>
-    /// Calculate the RPM the engine should be at based on vehicle speed and gearing.
-    /// Formula: RPM = (VehicleSpeed / TireCircumference) × GearRatio × FinalDrive × 60
-    /// </summary>
-    public float CalculateRPMFromSpeed(float speedMS, float totalGearRatio)
+    // Conversion constants
+    private const float HP_TO_KW = 0.7457f;
+    private const float KW_TO_HP = 1.341f;
+
+    void OnValidate()
     {
-        if (Mathf.Abs(totalGearRatio) < 0.01f) return idleRPM;
+        // Sync HP <-> kW (HP is the primary input, kW is derived)
+        maxPowerKW = horsepowerHP * HP_TO_KW;
+    }
+    
+    void Awake()
+    {
+        // Ensure sync
+        maxPowerKW = horsepowerHP * HP_TO_KW;
+        GenerateTorqueCurve();
+    }
+    
+    void GenerateTorqueCurve()
+    {
+        // generate a realistic torque curve
+        proceduralTorqueCurve = new AnimationCurve();
         
-        float tireCircumference = 2f * Mathf.PI * tireRadius;
-        float wheelRPS = speedMS / tireCircumference; // Rotations per second
-        float wheelRPM = wheelRPS * 60f;
-        float engineRPM = wheelRPM * Mathf.Abs(totalGearRatio);
+        // Idle: 60% torque
+        proceduralTorqueCurve.AddKey(new Keyframe(0f, 0.7f)); 
         
-        return engineRPM;
+        // Peak Torque RPM: 100% torque
+        float peakTorqueNorm = peakTorqueRPM / maxRPM;
+        proceduralTorqueCurve.AddKey(new Keyframe(peakTorqueNorm, 1.0f));
+        
+        // We WANT to hit exactly 'horsepowerHP' at 'peakPowerRPM'.
+        // RequiredTorque = (PowerKW * 9549) / RPM
+        // CurveFactor = RequiredTorque / peakTorqueNm 
+        float requiredTorqueForPeakHP = (maxPowerKW * 1000f * 9.549f) / Mathf.Max(peakPowerRPM, 1f);
+        float powerPointFactor = requiredTorqueForPeakHP / Mathf.Max(peakTorqueNm, 1f);
+        
+        // Clamp it reasonably (can't produce MORE than mechanical peak torque implies)
+        // For realism, we should stick to 1.0 peak, implying the user's config is impossible
+        // Let's cap at 1.0f (User needs to raise PeakTorque if they want more HP at low RPM)
+        powerPointFactor = Mathf.Min(powerPointFactor, 1.0f);
+        float peakPowerNorm = peakPowerRPM / maxRPM;
+        proceduralTorqueCurve.AddKey(new Keyframe(peakPowerNorm, powerPointFactor)); 
+        
+        // Redline: Maintain more power
+        // Don't drop to 0.5. Drop to maybe 0.7 or maintain power?
+        proceduralTorqueCurve.AddKey(new Keyframe(1.0f, 0.7f));
+        
+        // Linearize tangents for smooth curve
+        for (int i=0; i < proceduralTorqueCurve.length; i++) 
+            proceduralTorqueCurve.SmoothTangents(i, 0f);            
+        Debug.Log($"[VehicleEngine] Generated Torque Curve. Peak Torque @ {peakTorqueRPM}, Peak Power Factor {powerPointFactor:F2} @ {peakPowerRPM}");
     }
 
-    /// <summary>
-    /// Update engine RPM based on wheel-derived RPM and throttle.
-    /// </summary>
-    public void UpdateEngine(float throttle, float vehicleSpeedMS, float totalGearRatio, float clutchEngagement, float dt)
+
+    /// Calculates the instantaneous torque available at the flywheel.
+    /// Pure function: depends only on current state, does not modify state.
+    public float CalculateTorque(float currentRPM, float throttle)
     {
-        if (engineType == EngineType.Electric)
+        currentRPM = Mathf.Abs(currentRPM); // Handle reverse RPM naturally
+        float availableTorque = 0f;
+
+        if (engineType == EngineType.InternalCombustion)
         {
-            UpdateElectricMotor(throttle, vehicleSpeedMS, totalGearRatio, dt);
+            // ICE Calculation: Procedural Curve based
+            if (proceduralTorqueCurve == null) GenerateTorqueCurve();
+            
+            float effectiveRPM = Mathf.Max(currentRPM, idleRPM);
+            float normalizedRPM = Mathf.Clamp01(effectiveRPM / maxRPM);
+            
+            float curveFactor = proceduralTorqueCurve.Evaluate(normalizedRPM);
+            availableTorque = peakTorqueNm * curveFactor * throttle;
         }
         else
         {
-            UpdateICEngine(throttle, vehicleSpeedMS, totalGearRatio, clutchEngagement, dt);
-        }
-    }
+            // EV Calculation: Dynamic Crossover
+            // We calculate the natural RPM where Peak Torque intersects Peak Power.
+            // CrossoverRPM = (PowerKW * 9549) / TorqueNm
+            float crossoverRPM = (maxPowerKW * 1000f * 9.549f) / Mathf.Max(peakTorqueNm, 1f);
+            
+            // Update the debug value if needed (optional, or just ignore the field)
+            // evBaseRPM = crossoverRPM; 
 
-    void UpdateICEngine(float throttle, float vehicleSpeedMS, float totalGearRatio, float clutchEngagement, float dt)
-    {
-        // Calculate what RPM the engine SHOULD be at based on wheel speed
-        float wheelDerivedRPM = CalculateRPMFromSpeed(vehicleSpeedMS, totalGearRatio);
+            if (currentRPM < crossoverRPM)
+            {
+                // Constant Torque Region
+                availableTorque = peakTorqueNm * throttle;
+            }
+            else
+            {
+                // Constant Power Region
+                // Torque = Power / RPM
+                float powerLimitTorque = (maxPowerKW * 1000f * 9.549f) / Mathf.Max(currentRPM, 1f);
+                availableTorque = powerLimitTorque * throttle;
+            }
+        }
+
+        // Apply friction/pumping losses
+        float drag = frictionTorque + (brakingTorque * (1f - throttle) * (currentRPM / maxRPM));
+        float netTorque = availableTorque - drag;
         
-        // Minimum RPM is idle
-        float minRPM = idleRPM;
+        if (throttle > 0.1f) netTorque = Mathf.Max(netTorque, 0f);
         
-        if (clutchEngagement > 0.5f)
-        {
-            // Clutch engaged: RPM is locked to wheel speed
-            targetRPM = Mathf.Max(wheelDerivedRPM, minRPM);
-        }
-        else
-        {
-            // Clutch slipping/disengaged: can rev freely
-            float freeRevTarget = Mathf.Lerp(minRPM, maxRPM * 0.9f, throttle);
-            targetRPM = Mathf.Max(wheelDerivedRPM * clutchEngagement, freeRevTarget);
-        }
-
-        // Rev limiter
-        targetRPM = Mathf.Min(targetRPM, maxRPM);
-
-        // Engine inertia: RPM doesn't change instantly
-        float rpmChangeRate = (maxRPM - idleRPM) / engineInertia;
-        currentRPM = Mathf.MoveTowards(currentRPM, targetRPM, rpmChangeRate * dt);
-        currentRPM = Mathf.Clamp(currentRPM, minRPM, maxRPM);
-
-        // Calculate output torque
-        outputTorque = GetTorque(throttle);
+        return netTorque;
     }
 
-    void UpdateElectricMotor(float throttle, float vehicleSpeedMS, float totalGearRatio, float dt)
+    /// Returns the maximum power (kW) currently being produced.
+    /// Used for UI/Telemetry.
+    public float GetCurrentPowerKW(float torqueNm, float currentRPM)
     {
-        // EVs: RPM is directly tied to wheel speed (single gear, no clutch)
-        float wheelDerivedRPM = CalculateRPMFromSpeed(vehicleSpeedMS, totalGearRatio);
-        
-        // EV can "spin" motor when stationary with throttle
-        if (vehicleSpeedMS < 1f && throttle > 0.1f)
-        {
-            targetRPM = maxRPM * throttle * 0.3f;
-        }
-        else
-        {
-            targetRPM = wheelDerivedRPM;
-        }
-
-        targetRPM = Mathf.Min(targetRPM, maxRPM);
-
-        // EVs have very fast response
-        float rpmChangeRate = maxRPM * 5f;
-        currentRPM = Mathf.MoveTowards(currentRPM, targetRPM, rpmChangeRate * dt);
-        currentRPM = Mathf.Clamp(currentRPM, 0f, maxRPM);
-
-        outputTorque = GetTorque(throttle);
-    }
-
-    /// <summary>
-    /// Get torque output at current RPM and throttle.
-    /// </summary>
-    public float GetTorque(float throttle)
-    {
-        // Rev limiter cuts power
-        if (currentRPM >= maxRPM - 100f)
-        {
-            return 0f;
-        }
-
-        float normalizedRPM = currentRPM / maxRPM;
-        float curveFactor;
-
-        if (engineType == EngineType.Electric)
-        {
-            curveFactor = evTorqueCurve.Evaluate(normalizedRPM);
-        }
-        else
-        {
-            curveFactor = torqueCurve.Evaluate(normalizedRPM);
-        }
-
-        return peakTorqueNm * throttle * curveFactor * drivetrainEfficiency;
-    }
-
-    /// <summary>
-    /// Calculate wheel torque from engine torque.
-    /// WheelTorque = EngineTorque × GearRatio × FinalDrive
-    /// </summary>
-    public float GetWheelTorque(float throttle, float totalGearRatio)
-    {
-        return GetTorque(throttle) * Mathf.Abs(totalGearRatio);
-    }
-
-    /// <summary>
-    /// Calculate current power output in kW.
-    /// Power = Torque × RPM / 9549
-    /// </summary>
-    public float GetCurrentPowerKW()
-    {
-        return (outputTorque * currentRPM) / 9549f;
-    }
-
-    /// <summary>
-    /// Get current power in HP.
-    /// </summary>
-    public float GetCurrentPowerHP()
-    {
-        return GetCurrentPowerKW() * 1.341f;
+        return (torqueNm * currentRPM) / 9549f;
     }
 }

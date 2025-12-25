@@ -2,8 +2,7 @@ using UnityEngine;
 
 public class VehicleAerodynamics : MonoBehaviour
 {
-    // Placeholder for now as original code didn't have explicit aero logic other than maybe drag (handled by RB)
-    // But user asked for it.
+    // Placeholder for now
     
     public float dragCoefficient = 0.3f;
     public float downforceCoefficient = 0.1f;
@@ -16,7 +15,7 @@ public class VehicleAerodynamics : MonoBehaviour
         // F_down = 0.5 * rho * Cl * A * v^2
         
         float rho = 1.225f; // Air density
-        float speed = rb.linearVelocity.magnitude; // Unity 6 uses linearVelocity
+        float speed = rb.linearVelocity.magnitude;
         float dynamicPressure = 0.5f * rho * speed * speed;
         
         Vector3 velocityDir = rb.linearVelocity.normalized;
